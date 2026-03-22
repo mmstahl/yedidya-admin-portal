@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"D:\\Utils\\Obsidian\\My Vaults\\TheOracle\\Yedidya-website-portal\" && git add -A && git diff --cached --quiet || git commit -m \"Auto-save: portal changes\" && git push 2>/dev/null || true",
+            "statusMessage": "Saving changes to git…"
+          }
+        ]
+      }
+    ]
+  }
+}
