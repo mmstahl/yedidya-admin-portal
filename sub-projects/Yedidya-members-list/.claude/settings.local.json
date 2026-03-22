@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcopy /E /I /Y \"D:\\\\Utils\\\\Obsidian\\\\My Vaults\\\\TheOracle\\\\project-seed\\\\.claude\" \"D:\\\\Utils\\\\Obsidian\\\\My Vaults\\\\TheOracle\\\\Yedidya-members-list\\\\.claude\")",
+      "Bash(xcopy /E /I /Y \"D:\\\\Utils\\\\Obsidian\\\\My Vaults\\\\TheOracle\\\\project-seed\\\\.claude\" \"D:\\\\Utils\\\\Obsidian\\\\My Vaults\\\\TheOracle\\\\Yedidya-members-list\\\\.claude\"\")",
+      "Bash(ls \"D:\\\\Utils\\\\Obsidian\\\\My Vaults\\\\TheOracle\\\\Yedidya-members-list\\\\core\"\" 2>/dev/null || echo \"directory empty or missing \")"
+    ]
+  }
+}
