@@ -27,6 +27,9 @@ config.json
 # Claude Code local overrides (personal, not for team)
 .claude/settings.local.json
 
+# Claude Code skills (local tools, not project code — contain example passwords that trip secret scanners)
+.claude/skills/
+
 # OS
 .DS_Store
 Thumbs.db
