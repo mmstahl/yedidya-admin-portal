@@ -53,10 +53,13 @@ class MembersListWindow(tk.Toplevel):
         path_row(fields, 1, "Processed CSV:", '_processed_csv')
         path_row(fields, 2, "PDF output:",    '_pdf')
 
-        # SFTP remote path — no file browser (not a local path)
+        # SFTP remote path — locked by default; requires confirmation to edit
         ttk.Label(fields, text="SFTP remote path:").grid(row=3, column=0, sticky="e", **pad)
         self._sftp_remote = ttk.Entry(fields)
         self._sftp_remote.grid(row=3, column=1, columnspan=2, sticky="ew", **pad)
+        self._sftp_unlocked = False
+        self._sftp_remote.configure(state='readonly')
+        self._sftp_remote.bind('<Button-1>', self._on_sftp_click)
 
         # --- Log area ---
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -86,6 +89,40 @@ class MembersListWindow(tk.Toplevel):
     # ------------------------------------------------------------------
     # Defaults
     # ------------------------------------------------------------------
+
+    def _on_sftp_click(self, event):
+        if self._sftp_unlocked:
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title("Change SFTP path?")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        msg = (
+            "This is the path that the website uses to display the members list.\n"
+            "Changing it means you must also change the Members List pages\n"
+            "(in Hebrew and English).\n\n"
+            "Do you really want to do that?"
+        )
+        ttk.Label(dialog, text=msg, padding=(16, 12)).pack()
+
+        btn_frame = ttk.Frame(dialog, padding=(12, 8))
+        btn_frame.pack(anchor="e")
+
+        def on_yes():
+            self._sftp_unlocked = True
+            self._sftp_remote.configure(state='normal')
+            dialog.destroy()
+            self._sftp_remote.focus_set()
+
+        ttk.Button(btn_frame, text="Yes",    command=on_yes).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side="left")
+
+        # Position near the field
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + 40
+        y = self.winfo_rooty() + 40
+        dialog.geometry(f"+{x}+{y}")
 
     def _load_defaults(self):
         defaults = self.action.get_defaults(self.env)
