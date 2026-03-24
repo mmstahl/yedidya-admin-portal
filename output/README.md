@@ -36,7 +36,7 @@ Fetches the current member data from WordPress, generates a formatted PDF, and u
 **How to run:**
 
 1. Click **Go** next to *Members List*.
-2. Check the file paths — they're pre-filled from the last run. Change them if needed (the new path will be remembered for next time).
+2. Check the file paths — they default to the folder where the portal is installed. You can leave them as-is unless you want the files saved somewhere else. Any change is remembered for next time.
 3. Click **Run**.
 
 The portal runs three steps in sequence:
