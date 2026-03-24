@@ -10,7 +10,7 @@ Credentials are stored securely on your machine (Windows Credential Manager). No
 
 When you open the portal for the first time, a credentials window will appear. Fill in your details for Staging and/or Production:
 
-- **Site URL** and **SFTP host/user** are pre-filled — don't change them.
+- **Site URL** and **SFTP host/user** are pre-filled — don't change them unless you know what you are doing and why.
 - **Application Password** is a WordPress-generated password, not your login password. To create one: log into WordPress → Users → Your Profile → scroll to *Application Passwords* → enter a name (e.g. "Portal") → click *Add New*. Copy the password and paste it here.
 - **SFTP Password** — ask the site administrator.
 
@@ -31,7 +31,9 @@ The portal always opens in Staging mode.
 
 ## Members List
 
-Fetches the current member data from WordPress, generates a formatted PDF, and uploads it to the website.
+Fetches the data needed for the members list (e.g. names, phones, email etc.) of all existing accounts from WordPress, generates a formatted PDF, and uploads it to the website.
+See more details below. 
+
 
 **How to run:**
 
@@ -44,8 +46,8 @@ The portal runs three steps in sequence:
 | Step | What happens |
 |------|-------------|
 | Fetch | Downloads the current member list from WordPress into a CSV file |
-| Process | Cleans and sorts the data |
-| Generate PDF | Produces the formatted Hebrew members list PDF |
+| Process | Cleans and sorts the data. Accounts that have the approval to publish in the members list set to "No" are filtered out |
+| Generate PDF | Produces the formatted members list PDF (In Hebrew; there is no option currently to have it in English)|
 
 In **Staging**, the PDF is uploaded automatically after generation.
 
