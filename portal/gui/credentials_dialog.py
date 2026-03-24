@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from portal.credentials import credential_manager as cm
+from portal.config.settings import CREDENTIAL_SEEDS
 
 
 class CredentialsDialog(tk.Toplevel):
@@ -105,19 +106,46 @@ class CredentialsDialog(tk.Toplevel):
                     entry.configure(show=show)
 
     # ------------------------------------------------------------------
+    # Placeholder helpers (WP username field)
+    # ------------------------------------------------------------------
+
+    _PLACEHOLDER = 'Enter here your Admin login email'
+
+    def _clear_placeholder(self, widget):
+        if widget.get() == self._PLACEHOLDER:
+            widget.delete(0, 'end')
+            widget.configure(foreground='')
+
+    def _restore_placeholder(self, widget):
+        if not widget.get().strip():
+            widget.insert(0, self._PLACEHOLDER)
+            widget.configure(foreground='gray')
+
+    # ------------------------------------------------------------------
     # Load / save
     # ------------------------------------------------------------------
 
     def _load_existing(self):
         for env, entries in self._entries.items():
-            creds = cm.get_all(env)
+            stored = cm.get_all(env)
+            seeds  = CREDENTIAL_SEEDS.get(env, {})
             for key, entry in entries.items():
-                entry.insert(0, creds.get(key, ''))
+                value = stored.get(key) or seeds.get(key, '')
+                entry.insert(0, value)
+                # WP username: show placeholder when empty
+                if key == 'wp_user' and not value:
+                    entry.insert(0, 'Enter here your Admin login email')
+                    entry.configure(foreground='gray')
+                    entry.bind('<FocusIn>',  lambda e, w=entry: self._clear_placeholder(w))
+                    entry.bind('<FocusOut>', lambda e, w=entry: self._restore_placeholder(w))
 
     def _save(self):
         # Validate: at least the active tab must be fully filled
         active_tab  = self._notebook.tab(self._notebook.select(), "text").lower()
-        active_creds = {k: e.get().strip() for k, e in self._entries[active_tab].items()}
+        active_creds = {
+            k: ('' if e.get().strip() == self._PLACEHOLDER else e.get().strip())
+            for k, e in self._entries[active_tab].items()
+        }
 
         if not all(active_creds.values()):
             messagebox.showwarning(
@@ -129,7 +157,10 @@ class CredentialsDialog(tk.Toplevel):
 
         # Save both tabs (save whatever is filled in each)
         for env, entries in self._entries.items():
-            creds = {k: e.get().strip() for k, e in entries.items()}
+            creds = {
+                k: ('' if e.get().strip() == self._PLACEHOLDER else e.get().strip())
+                for k, e in entries.items()
+            }
             if all(creds.values()):  # only save if complete
                 cm.save(creds, env)
 

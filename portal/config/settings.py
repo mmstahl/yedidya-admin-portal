@@ -22,3 +22,24 @@ else:
     )
 
 KEYRING_SERVICE = 'YedidyaPortal'
+
+# Seed values shown in the credentials dialog on first run.
+# Passwords and WP username are intentionally blank — each admin enters their own.
+CREDENTIAL_SEEDS = {
+    'staging': {
+        'wp_url':        'https://staging-9e0a-kehilatyedidya.wpcomstaging.com/',
+        'wp_user':       '',
+        'wp_password':   '',
+        'sftp_host':     'sftp.wp.com',
+        'sftp_user':     'staging-9e0a-kehilatyedidya.wordpress.com',
+        'sftp_password': '',
+    },
+    'production': {
+        'wp_url':        'https://yedidya.org.il',
+        'wp_user':       '',
+        'wp_password':   '',
+        'sftp_host':     'sftp.wp.com',
+        'sftp_user':     'kehilatyedidya.wordpress.com',
+        'sftp_password': '',
+    },
+}
