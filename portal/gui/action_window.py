@@ -129,7 +129,9 @@ class MembersListWindow(tk.Toplevel):
         self._raw_csv.insert(0,       defaults.get('raw_csv_path', ''))
         self._processed_csv.insert(0, defaults.get('processed_csv_path', ''))
         self._pdf.insert(0,           defaults.get('pdf_path', ''))
+        self._sftp_remote.configure(state='normal')
         self._sftp_remote.insert(0,   defaults.get('sftp_remote_path', ''))
+        self._sftp_remote.configure(state='readonly')
 
     def _browse(self, entry):
         path = filedialog.asksaveasfilename(parent=self)
