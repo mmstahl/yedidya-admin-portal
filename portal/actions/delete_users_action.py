@@ -116,23 +116,37 @@ class DeleteUsersAction(BaseAction):
     # ------------------------------------------------------------------
 
     def _read_csv(self, csv_path):
-        """Return (list of emails, error_string_or_None)."""
+        """Return (list of emails, error_string_or_None).
+
+        Handles both:
+          - CSV with header row  (email, Email, EMAIL, or first column)
+          - CSV with no header   (detected when first cell contains '@')
+        """
         try:
-            emails = []
             with open(csv_path, newline='', encoding='utf-8-sig') as f:
-                reader = csv.DictReader(f)
-                # Accept column named 'email', 'Email', 'EMAIL', or first column
-                col = next(
-                    (c for c in reader.fieldnames or []
-                     if c.strip().lower() == 'email'),
-                    reader.fieldnames[0] if reader.fieldnames else None
-                )
-                if not col:
-                    return [], "CSV has no columns."
-                for row in reader:
-                    val = row.get(col, '').strip()
-                    if val:
-                        emails.append(val.lower())
+                rows = [r for r in csv.reader(f) if any(c.strip() for c in r)]
+
+            if not rows:
+                return [], "CSV contains no email addresses."
+
+            first_cell = rows[0][0].strip() if rows[0] else ''
+
+            if '@' in first_cell:
+                # No header — every row is data; email is in the first column
+                col_idx   = 0
+                data_rows = rows
+            else:
+                # First row is a header — find the email column
+                header    = [c.strip().lower() for c in rows[0]]
+                col_idx   = header.index('email') if 'email' in header else 0
+                data_rows = rows[1:]
+
+            emails = [
+                row[col_idx].strip().lower()
+                for row in data_rows
+                if len(row) > col_idx and row[col_idx].strip()
+            ]
+
             if not emails:
                 return [], "CSV contains no email addresses."
             return emails, None
