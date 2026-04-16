@@ -13,4 +13,4 @@ if ( ! defined( 'ABSPATH' ) ) {
 require_once plugin_dir_path( __FILE__ ) . 'member-export.php';
 require_once plugin_dir_path( __FILE__ ) . 'gdpr-erase.php';
 require_once plugin_dir_path( __FILE__ ) . 'members-list-link-shortcode.php';
-require_once plugin_dir_path( __FILE__ ) . 'db-extract.php';
+// require_once plugin_dir_path( __FILE__ ) . 'db-extract.php';
