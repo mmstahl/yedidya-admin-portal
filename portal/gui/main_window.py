@@ -10,8 +10,10 @@ from portal.credentials import credential_manager as cm
 from portal.gui.credentials_dialog import CredentialsDialog
 from portal.gui.action_window import MembersListWindow
 from portal.gui.delete_users_window import DeleteUsersWindow
+from portal.gui.db_extract_window import DbExtractWindow
 from portal.actions.members_list_action import MembersListAction
 from portal.actions.delete_users_action import DeleteUsersAction
+from portal.actions.db_extract_action import DbExtractAction
 
 
 class MainWindow(tk.Tk):
@@ -26,7 +28,7 @@ class MainWindow(tk.Tk):
         self._env = tk.StringVar(value=saved_env if saved_env in ('staging', 'production') else 'staging')
         self._env.trace_add('write', self._on_env_change)
 
-        self._actions = [MembersListAction(), DeleteUsersAction()]
+        self._actions = [MembersListAction(), DeleteUsersAction(), DbExtractAction()]
         self._build()
         self._check_credentials()
 
@@ -146,3 +148,5 @@ class MainWindow(tk.Tk):
             MembersListWindow(self, action, env=env)
         elif isinstance(action, DeleteUsersAction):
             DeleteUsersWindow(self, action, env=env)
+        elif isinstance(action, DbExtractAction):
+            DbExtractWindow(self, action, env=env)
