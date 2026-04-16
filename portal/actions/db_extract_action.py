@@ -18,14 +18,25 @@ class DbExtractAction(BaseAction):
     name = "DB Extract"
     description = "Extract WordPress user fields to a CSV file"
 
+    # These two are always extracted as the first two columns regardless of
+    # what the caller specifies.
+    FIXED_FIELDS = ['user_login', 'user_email']
+
     def run(self, fields: list[str], csv_path: str, env: str = 'staging') -> ActionResult:
         """
         Fetch the requested fields for every user and write to csv_path.
 
-        fields   — list of field names (wp_users columns and/or usermeta keys)
+        user_login and user_email are always prepended as the first two
+        columns; they do not need to be included in `fields`.
+
+        fields   — additional field names (wp_users columns and/or usermeta keys)
         csv_path — absolute path for the output CSV
         env      — 'staging' or 'production'
         """
+        # Build full field list: fixed first, then caller fields (no duplicates).
+        extra = [f for f in fields if f not in self.FIXED_FIELDS]
+        all_fields = self.FIXED_FIELDS + extra
+
         wp_url  = get_cred('wp_url',      env)
         wp_user = get_cred('wp_user',     env)
         wp_pass = get_cred('wp_password', env)
@@ -34,7 +45,7 @@ class DbExtractAction(BaseAction):
             url = f"{wp_url.rstrip('/')}{DB_EXTRACT_ENDPOINT}"
             resp = requests.get(
                 url,
-                params={'fields': ','.join(fields)},
+                params={'fields': ','.join(all_fields)},
                 auth=(wp_user, wp_pass),
                 timeout=60,
             )
@@ -52,7 +63,7 @@ class DbExtractAction(BaseAction):
 
         try:
             with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
+                writer = csv.DictWriter(f, fieldnames=all_fields, extrasaction='ignore')
                 writer.writeheader()
                 writer.writerows(rows)
         except Exception as e:

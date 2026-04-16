@@ -73,8 +73,9 @@ class DbExtractWindow(tk.Toplevel):
 
         ttk.Label(
             fields_frame,
-            text="Comma-separated field names — wp_users columns (e.g. user_email, display_name) "
-                 "or usermeta keys (e.g. first_name, cellphone1).",
+            text="Additional fields to extract, comma-separated. "
+                 "user_login and user_email are always included as the first two columns. "
+                 "Add wp_users columns (e.g. display_name) or usermeta keys (e.g. first_name, cellphone1).",
             foreground="gray", font=("Segoe UI", 8), wraplength=420,
         ).grid(row=2, column=1, columnspan=2, sticky="w", padx=8)
 
