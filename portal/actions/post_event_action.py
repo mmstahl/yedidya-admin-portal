@@ -105,23 +105,41 @@ class PostEventAction(BaseAction):
         if n_replaced == 0:
             return ActionResult(False, "No image block found in the template content.")
 
-        # ── 5. Create draft post ───────────────────────────────────────────
+        # ── 5. Create or update draft post ────────────────────────────────
+        # Check if a post with this title already exists.
+        existing_id = None
         try:
-            post_resp = requests.post(
+            search_resp = requests.get(
                 f"{base}/wp-json/wp/v2/posts",
-                json={
-                    'title':   title,
-                    'content': content,
-                    'status':  'draft',
-                },
+                params={'search': title, 'status': 'any', 'context': 'edit', 'per_page': 20},
                 auth=auth, timeout=30,
             )
+            search_resp.raise_for_status()
+            for p in search_resp.json():
+                if p.get('title', {}).get('raw', '').strip() == title:
+                    existing_id = p['id']
+                    break
+        except Exception as e:
+            return ActionResult(False, f"Failed to search for existing post: {e}")
+
+        post_body = {'title': title, 'content': content, 'status': 'draft'}
+
+        try:
+            if existing_id:
+                url = f"{base}/wp-json/wp/v2/posts/{existing_id}"
+                post_resp = requests.post(url, json=post_body, auth=auth, timeout=30)
+                verb = "updated"
+            else:
+                url = f"{base}/wp-json/wp/v2/posts"
+                post_resp = requests.post(url, json=post_body, auth=auth, timeout=30)
+                verb = "created"
+
             if post_resp.status_code == 401:
                 return ActionResult(False, "401 Unauthorized — check credentials.")
             post_resp.raise_for_status()
-            new_post = post_resp.json()
+            saved_post = post_resp.json()
         except Exception as e:
-            return ActionResult(False, f"Failed to create post: {e}")
+            return ActionResult(False, f"Failed to save post: {e}")
 
-        post_url = new_post.get('link', '')
-        return ActionResult(True, f"Draft post created. ID: {new_post['id']}", data=post_url)
+        post_url = saved_post.get('link', '')
+        return ActionResult(True, f"Draft post {verb}. ID: {saved_post['id']}", data=post_url)
