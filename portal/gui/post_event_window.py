@@ -2,9 +2,11 @@
 Post & Event window.
 
 Flow:
-  1. User fills in Title, Date, Description, Image.
-  2. "Create Post" runs in a background thread.
-  3. Result shown in the log.
+  1. User picks a template — fields shown/hidden accordingly.
+  2. User fills in Title plus the template-specific fields.
+  3. User selects one or more categories (not remembered between invocations).
+  4. "Create Post" runs in a background thread.
+  5. Result shown in the log; window stays open for consecutive runs.
 """
 import os
 import tempfile
@@ -13,14 +15,23 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 import defaults_manager as dm
-from portal.actions.post_event_action import PostEventAction
+from portal.actions.post_event_action import PostEventAction, TEMPLATES
 
-# Pillow is used for clipboard grab and thumbnail preview.
 try:
     from PIL import Image, ImageTk, ImageGrab
     _PIL_AVAILABLE = True
 except ImportError:
     _PIL_AVAILABLE = False
+
+CATEGORIES = [
+    'אירועים',
+    'אירועים קרובים',
+    'גיוס כספים',
+    'השבוע בידידיה',
+    'ידיעות ידידיה',
+    'ללא קטגוריה',
+    'עדכוני שבעה',
+]
 
 
 class PostEventWindow(tk.Toplevel):
@@ -32,14 +43,16 @@ class PostEventWindow(tk.Toplevel):
         self.action  = action
         self.env     = env
 
-        self._image_path  = None   # path to the image file to upload
-        self._image_temp  = False  # True if the file is a temp file (clipboard paste)
-        self._thumb_photo = None   # kept alive to prevent GC
+        self._image_path  = None
+        self._image_temp  = False
+        self._thumb_photo = None
+        # Maps field name → (label_widget, content_widget) for optional rows.
+        self._field_rows  = {}
 
         self._build()
         self._load_defaults()
         self._center(parent)
-        self.minsize(480, 480)
+        self.minsize(500, 560)
 
     # ------------------------------------------------------------------
     # Layout
@@ -47,37 +60,53 @@ class PostEventWindow(tk.Toplevel):
 
     def _build(self):
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(1, weight=1)  # category frame
+        self.rowconfigure(2, weight=1)  # log frame
 
         pad = {"padx": 8, "pady": 4}
 
-        # --- Details section ---
+        # ── Details section ────────────────────────────────────────────────
         details = ttk.LabelFrame(self, text="Event Details", padding=8)
         details.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 4))
         details.columnconfigure(1, weight=1)
 
-        # Title
-        ttk.Label(details, text="Title:").grid(row=0, column=0, sticky="e", **pad)
+        # Template
+        ttk.Label(details, text="Template:").grid(row=0, column=0, sticky="e", **pad)
+        self._template_var = tk.StringVar()
+        self._template_cb = ttk.Combobox(
+            details, textvariable=self._template_var,
+            values=list(TEMPLATES.keys()), state="readonly", width=30,
+        )
+        self._template_cb.grid(row=0, column=1, columnspan=2, sticky="w", **pad)
+        self._template_cb.bind("<<ComboboxSelected>>", self._on_template_change)
+
+        # Title (always visible)
+        ttk.Label(details, text="Title:").grid(row=1, column=0, sticky="e", **pad)
         self._title_var = tk.StringVar()
         ttk.Entry(details, textvariable=self._title_var).grid(
-            row=0, column=1, columnspan=2, sticky="ew", **pad)
-
-        # Date
-        ttk.Label(details, text="Date:").grid(row=1, column=0, sticky="e", **pad)
-        self._date_var = tk.StringVar()
-        ttk.Entry(details, textvariable=self._date_var).grid(
             row=1, column=1, columnspan=2, sticky="ew", **pad)
 
-        # Description
-        ttk.Label(details, text="Description:").grid(row=2, column=0, sticky="ne", **pad)
-        self._desc_text = tk.Text(details, height=4, wrap="word", font=("Segoe UI", 9))
-        self._desc_text.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
+        # Date (optional — shown based on template)
+        lbl_date = ttk.Label(details, text="Date:")
+        lbl_date.grid(row=2, column=0, sticky="e", **pad)
+        self._date_var = tk.StringVar()
+        entry_date = ttk.Entry(details, textvariable=self._date_var)
+        entry_date.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
+        self._field_rows['date'] = (lbl_date, entry_date)
 
-        # Image — path entry + buttons
-        ttk.Label(details, text="Image:").grid(row=3, column=0, sticky="ne", **pad)
+        # Description (optional)
+        lbl_desc = ttk.Label(details, text="Description:")
+        lbl_desc.grid(row=3, column=0, sticky="ne", **pad)
+        self._desc_text = tk.Text(details, height=4, wrap="word", font=("Segoe UI", 9))
+        self._desc_text.grid(row=3, column=1, columnspan=2, sticky="ew", **pad)
+        self._field_rows['description'] = (lbl_desc, self._desc_text)
+
+        # Image (optional)
+        lbl_img = ttk.Label(details, text="Image:")
+        lbl_img.grid(row=4, column=0, sticky="ne", **pad)
 
         img_frame = ttk.Frame(details)
-        img_frame.grid(row=3, column=1, columnspan=2, sticky="ew", **pad)
+        img_frame.grid(row=4, column=1, columnspan=2, sticky="ew", **pad)
         img_frame.columnconfigure(0, weight=1)
 
         self._img_path_var = tk.StringVar(value="No image selected")
@@ -85,40 +114,51 @@ class PostEventWindow(tk.Toplevel):
                   state="readonly").grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ttk.Button(img_frame, text="Browse…",
                    command=self._browse_image).grid(row=0, column=1)
+        ttk.Button(img_frame, text="Paste from clipboard",
+                   command=self._paste_image,
+                   state="normal" if _PIL_AVAILABLE else "disabled",
+                   ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-        paste_btn = ttk.Button(img_frame, text="Paste from clipboard",
-                               command=self._paste_image,
-                               state="normal" if _PIL_AVAILABLE else "disabled")
-        paste_btn.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self._thumb_label = ttk.Label(details)
+        self._thumb_label.grid(row=5, column=1, sticky="w", padx=8, pady=(0, 4))
+        self._field_rows['image'] = (lbl_img, img_frame)
+        # Thumbnail row shares visibility with image field.
+        self._thumb_row = self._thumb_label
 
-        if not _PIL_AVAILABLE:
-            ttk.Label(img_frame, text="(Install Pillow to enable clipboard paste)",
-                      foreground="gray", font=("Segoe UI", 8)).grid(
-                row=2, column=0, columnspan=2, sticky="w")
+        # ── Category section ───────────────────────────────────────────────
+        cat_frame = ttk.LabelFrame(self, text="Category", padding=8)
+        cat_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=4)
+        cat_frame.columnconfigure(0, weight=1)
+        cat_frame.rowconfigure(0, weight=1)
 
-        # Thumbnail
-        self._thumb_label = ttk.Label(details, text="")
-        self._thumb_label.grid(row=4, column=1, sticky="w", padx=8, pady=(0, 4))
+        self._cat_listbox = tk.Listbox(
+            cat_frame, selectmode=tk.MULTIPLE,
+            height=len(CATEGORIES), font=("Segoe UI", 10),
+            activestyle="none",
+        )
+        for cat in CATEGORIES:
+            self._cat_listbox.insert(tk.END, cat)
+        self._cat_listbox.grid(row=0, column=0, sticky="nsew")
 
-        # --- Log area ---
+        # ── Log area ───────────────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
-        log_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=4)
+        log_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=4)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
-        self._log = tk.Text(log_frame, height=7, state="disabled",
+        self._log = tk.Text(log_frame, height=6, state="disabled",
                             font=("Consolas", 9), bg="#f8f8f8", relief="flat")
         scrollbar = ttk.Scrollbar(log_frame, command=self._log.yview)
         self._log.configure(yscrollcommand=scrollbar.set)
         self._log.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
 
-        # --- Bottom bar ---
+        # ── Bottom bar ─────────────────────────────────────────────────────
         bottom = ttk.Frame(self)
-        bottom.grid(row=2, column=0, sticky="ew", padx=12, pady=(4, 12))
+        bottom.grid(row=3, column=0, sticky="ew", padx=12, pady=(4, 12))
         bottom.columnconfigure(0, weight=1)
 
-        self._status_var = tk.StringVar(value="Fill in the details and click Create Post.")
+        self._status_var = tk.StringVar(value="Select a template and fill in the details.")
         ttk.Label(bottom, textvariable=self._status_var,
                   foreground="gray").grid(row=0, column=0, sticky="w")
 
@@ -129,10 +169,40 @@ class PostEventWindow(tk.Toplevel):
         self._create_btn.pack(side="right")
 
     # ------------------------------------------------------------------
-    # Defaults / persistence
+    # Template selection
+    # ------------------------------------------------------------------
+
+    def _on_template_change(self, *_):
+        template = self._template_var.get()
+        config   = TEMPLATES.get(template, {})
+        fields   = config.get('fields', [])
+
+        for name, (lbl, widget) in self._field_rows.items():
+            if name in fields:
+                lbl.grid()
+                widget.grid()
+            else:
+                lbl.grid_remove()
+                widget.grid_remove()
+
+        # Thumbnail follows image field visibility.
+        if 'image' in fields:
+            self._thumb_row.grid()
+        else:
+            self._thumb_row.grid_remove()
+
+    # ------------------------------------------------------------------
+    # Defaults / persistence  (categories intentionally excluded)
     # ------------------------------------------------------------------
 
     def _load_defaults(self):
+        template = dm.get('post_event', 'template')
+        if template and template in TEMPLATES:
+            self._template_var.set(template)
+        elif TEMPLATES:
+            self._template_var.set(next(iter(TEMPLATES)))
+        self._on_template_change()
+
         title = dm.get('post_event', 'title')
         if title:
             self._title_var.set(title)
@@ -149,7 +219,8 @@ class PostEventWindow(tk.Toplevel):
         if image_path and os.path.exists(image_path):
             self._set_image(image_path, is_temp=False)
 
-    def _save_defaults(self, title, date, description, image_path):
+    def _save_defaults(self, template, title, date, description, image_path):
+        dm.set_default('post_event', 'template',    template)
         dm.set_default('post_event', 'title',       title)
         dm.set_default('post_event', 'date',        date)
         dm.set_default('post_event', 'description', description)
@@ -162,12 +233,9 @@ class PostEventWindow(tk.Toplevel):
 
     def _browse_image(self):
         path = filedialog.askopenfilename(
-            parent=self,
-            title="Select image",
-            filetypes=[
-                ("Image files", "*.jpg *.jpeg *.png *.gif *.webp"),
-                ("All files", "*.*"),
-            ],
+            parent=self, title="Select image",
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.gif *.webp"),
+                       ("All files", "*.*")],
         )
         if path:
             self._set_image(path, is_temp=False)
@@ -185,21 +253,18 @@ class PostEventWindow(tk.Toplevel):
         tmp.close()
         self._set_image(tmp.name, is_temp=True)
 
-    def _set_image(self, path: str, is_temp: bool):
-        # Clean up previous temp file if any.
+    def _set_image(self, path, is_temp):
         if self._image_temp and self._image_path and os.path.exists(self._image_path):
             try:
                 os.unlink(self._image_path)
             except OSError:
                 pass
-
         self._image_path = path
         self._image_temp = is_temp
-        label = "Pasted image" if is_temp else os.path.basename(path)
-        self._img_path_var.set(label)
+        self._img_path_var.set("Pasted image" if is_temp else os.path.basename(path))
         self._update_thumbnail(path)
 
-    def _update_thumbnail(self, path: str):
+    def _update_thumbnail(self, path):
         if not _PIL_AVAILABLE:
             return
         try:
@@ -215,46 +280,63 @@ class PostEventWindow(tk.Toplevel):
     # ------------------------------------------------------------------
 
     def _on_create(self):
+        template = self._template_var.get()
+        if not template:
+            messagebox.showwarning("No template", "Select a template.", parent=self)
+            return
+
+        config = TEMPLATES[template]
+        fields = config.get('fields', [])
+
         title = self._title_var.get().strip()
         if not title:
             messagebox.showwarning("Missing title", "Enter a title.", parent=self)
             return
 
-        date = self._date_var.get().strip()
-        if not date:
+        date = self._date_var.get().strip() if 'date' in fields else ''
+        if 'date' in fields and not date:
             messagebox.showwarning("Missing date", "Enter a date.", parent=self)
             return
 
-        description = self._desc_text.get("1.0", tk.END).strip()
-        if not description:
-            messagebox.showwarning("Missing description",
-                                   "Enter a description.", parent=self)
+        description = self._desc_text.get("1.0", tk.END).strip() if 'description' in fields else ''
+        if 'description' in fields and not description:
+            messagebox.showwarning("Missing description", "Enter a description.", parent=self)
             return
 
-        if not self._image_path:
-            messagebox.showwarning("Missing image",
-                                   "Select or paste an image.", parent=self)
+        image_path = self._image_path if 'image' in fields else ''
+        if 'image' in fields and not image_path:
+            messagebox.showwarning("Missing image", "Select or paste an image.", parent=self)
             return
 
-        self._save_defaults(title, date, description, self._image_path)
+        categories = [CATEGORIES[i] for i in self._cat_listbox.curselection()]
+
+        self._save_defaults(template, title, date, description, image_path)
         self._create_btn.configure(state="disabled")
         self._log_clear()
         self._status_var.set("Creating post…")
+        self._log_write(f"Template:    {template}\n")
         self._log_write(f"Title:       {title}\n")
-        self._log_write(f"Date:        {date}\n")
-        self._log_write(f"Description: {description[:60]}{'…' if len(description) > 60 else ''}\n")
-        self._log_write(f"Image:       {self._img_path_var.get()}\n\n")
+        if date:
+            self._log_write(f"Date:        {date}\n")
+        if description:
+            self._log_write(f"Description: {description[:60]}{'…' if len(description) > 60 else ''}\n")
+        if image_path:
+            self._log_write(f"Image:       {self._img_path_var.get()}\n")
+        if categories:
+            self._log_write(f"Categories:  {', '.join(categories)}\n")
+        self._log_write("\n")
 
         threading.Thread(
             target=self._run_create,
-            args=(title, date, description, self._image_path),
+            args=(template, title, categories, date, description, image_path),
             daemon=True,
         ).start()
 
-    def _run_create(self, title, date, description, image_path):
+    def _run_create(self, template, title, categories, date, description, image_path):
         result = self.action.run(
-            title=title, date=date, description=description,
-            image_path=image_path, env=self.env,
+            template=template, title=title, categories=categories,
+            date=date, description=description, image_path=image_path,
+            env=self.env,
         )
         self.after(0, self._finish_create, result)
 
@@ -262,11 +344,15 @@ class PostEventWindow(tk.Toplevel):
         if result.success:
             self._log_write(f"Done. {result.message}\n")
             if result.data:
-                self._log_write(f"Preview URL: {result.data}\n")
-            self._status_var.set("Post created as draft.")
+                self._log_write(f"URL: {result.data}\n")
+            self._status_var.set("Post saved.")
         else:
             self._log_write(f"Error: {result.message}\n")
             self._status_var.set("Failed.")
+            if "401" in result.message:
+                from portal.gui.credentials_dialog import CredentialsDialog
+                CredentialsDialog(self, on_save=lambda: self._status_var.set(
+                    "Credentials updated. Try again."))
         self._create_btn.configure(state="normal")
 
     # ------------------------------------------------------------------
@@ -286,18 +372,13 @@ class PostEventWindow(tk.Toplevel):
 
     def _center(self, parent):
         self.update_idletasks()
-        x = parent.winfo_rootx() + 80
-        y = parent.winfo_rooty() + 60
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        x = max(40, min(x, screen_w - w - 20))
-        y = max(40, min(y, screen_h - h - 40))
+        x = max(40, min(parent.winfo_rootx() + 80,
+                        self.winfo_screenwidth()  - self.winfo_width()  - 20))
+        y = max(40, min(parent.winfo_rooty() + 60,
+                        self.winfo_screenheight() - self.winfo_height() - 40))
         self.geometry(f"+{x}+{y}")
 
     def destroy(self):
-        # Clean up any temp image file created from clipboard paste.
         if self._image_temp and self._image_path and os.path.exists(self._image_path):
             try:
                 os.unlink(self._image_path)
