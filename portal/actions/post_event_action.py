@@ -54,8 +54,8 @@ class PostEventAction(BaseAction):
                                        "Make sure the REST API returns raw content.")
 
         # ── 2. Replace text placeholders ──────────────────────────────────
-        content = content.replace('Date', date)
-        content = content.replace('Description', description)
+        content = content.replace('Hebrew-and-Gregorian-dates', date)
+        content = content.replace('Description-of-this-event', description)
 
         # ── 3. Upload image ────────────────────────────────────────────────
         try:

@@ -12,6 +12,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+import defaults_manager as dm
 from portal.actions.post_event_action import PostEventAction
 
 # Pillow is used for clipboard grab and thumbnail preview.
@@ -36,6 +37,7 @@ class PostEventWindow(tk.Toplevel):
         self._thumb_photo = None   # kept alive to prevent GC
 
         self._build()
+        self._load_defaults()
         self._center(parent)
         self.minsize(480, 480)
 
@@ -127,6 +129,34 @@ class PostEventWindow(tk.Toplevel):
         self._create_btn.pack(side="right")
 
     # ------------------------------------------------------------------
+    # Defaults / persistence
+    # ------------------------------------------------------------------
+
+    def _load_defaults(self):
+        title = dm.get('post_event', 'title')
+        if title:
+            self._title_var.set(title)
+
+        date = dm.get('post_event', 'date')
+        if date:
+            self._date_var.set(date)
+
+        desc = dm.get('post_event', 'description')
+        if desc:
+            self._desc_text.insert("1.0", desc)
+
+        image_path = dm.get('post_event', 'image_path')
+        if image_path and os.path.exists(image_path):
+            self._set_image(image_path, is_temp=False)
+
+    def _save_defaults(self, title, date, description, image_path):
+        dm.set_default('post_event', 'title',       title)
+        dm.set_default('post_event', 'date',        date)
+        dm.set_default('post_event', 'description', description)
+        if image_path and not self._image_temp:
+            dm.set_default('post_event', 'image_path', image_path)
+
+    # ------------------------------------------------------------------
     # Image selection
     # ------------------------------------------------------------------
 
@@ -206,6 +236,7 @@ class PostEventWindow(tk.Toplevel):
                                    "Select or paste an image.", parent=self)
             return
 
+        self._save_defaults(title, date, description, self._image_path)
         self._create_btn.configure(state="disabled")
         self._log_clear()
         self._status_var.set("Creating post…")
