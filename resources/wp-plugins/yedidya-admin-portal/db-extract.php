@@ -76,7 +76,9 @@ if ( ! function_exists( 'yedidya_db_extract_callback' ) ) {
             return new WP_Error( 'no_fields', 'No fields specified.', array( 'status' => 400 ) );
         }
 
-        $gender_filter = $request->get_param( 'gender' ); // null when not provided
+        // API accepts 'male'/'female'; DB stores 'M'/'F'.
+        $gender_param  = $request->get_param( 'gender' );
+        $gender_filter = $gender_param ? strtoupper( $gender_param[0] ) : null; // 'M' or 'F'
 
         // Categorise each requested field.
         $col_fields = array();
@@ -101,8 +103,8 @@ if ( ! function_exists( 'yedidya_db_extract_callback' ) ) {
 
         foreach ( $users as $user ) {
             if ( $gender_filter ) {
-                $user_gender    = strtolower( (string) get_user_meta( $user->ID, 'yourgender',    true ) );
-                $partner_gender = strtolower( (string) get_user_meta( $user->ID, 'partnergender', true ) );
+                $user_gender    = strtoupper( (string) get_user_meta( $user->ID, 'yourgender',    true ) );
+                $partner_gender = strtoupper( (string) get_user_meta( $user->ID, 'partnergender', true ) );
 
                 if ( $user_gender === $gender_filter ) {
                     $result[] = yedidya_build_extract_row(
