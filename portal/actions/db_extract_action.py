@@ -23,7 +23,7 @@ class DbExtractAction(BaseAction):
     FIXED_FIELDS = ['user_login', 'user_email']
 
     def run(self, fields: list[str], csv_path: str, env: str = 'staging',
-            gender: str | None = None) -> ActionResult:
+            gender: str | None = None, privacy: str | None = None) -> ActionResult:
         """
         Fetch the requested fields for every user and write to csv_path.
 
@@ -34,6 +34,7 @@ class DbExtractAction(BaseAction):
         csv_path — absolute path for the output CSV
         env      — 'staging' or 'production'
         gender   — 'male', 'female', or None (no filter)
+        privacy  — 'Yes', 'No', or None (no filter on contact_list_privacy_setting)
         """
         # Build full field list: record_type first, then fixed, then caller fields.
         extra = [f for f in fields if f not in self.FIXED_FIELDS]
@@ -48,6 +49,8 @@ class DbExtractAction(BaseAction):
             params = {'fields': ','.join(f for f in all_fields if f != 'record_type')}
             if gender:
                 params['gender'] = gender
+            if privacy:
+                params['privacy'] = privacy
             resp = requests.get(
                 url,
                 params=params,

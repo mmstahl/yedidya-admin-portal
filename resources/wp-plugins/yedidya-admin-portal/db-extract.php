@@ -5,6 +5,7 @@
  *
  * GET /wp-json/yedidya/v1/db-extract?fields=first_name,last_name,role
  * GET /wp-json/yedidya/v1/db-extract?fields=first_name,last_name&gender=male
+ * GET /wp-json/yedidya/v1/db-extract?fields=first_name,last_name&privacy=Yes
  * Auth: WordPress application password with edit_users capability
  *
  * 'role' is a virtual field resolved from wp_capabilities.
@@ -46,6 +47,12 @@ if ( ! function_exists( 'yedidya_register_db_extract_route' ) ) {
                     'enum'              => array( 'male', 'female' ),
                     'sanitize_callback' => 'sanitize_text_field',
                 ),
+                'privacy' => array(
+                    'required'          => false,
+                    'type'              => 'string',
+                    'enum'              => array( 'Yes', 'No' ),
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
             ),
         ) );
     }
@@ -80,6 +87,9 @@ if ( ! function_exists( 'yedidya_db_extract_callback' ) ) {
         $gender_param  = $request->get_param( 'gender' );
         $gender_filter = $gender_param ? strtoupper( $gender_param[0] ) : null; // 'M' or 'F'
 
+        // API accepts 'Yes'/'No'; DB stores 'Yes'/'No' (case-insensitive match).
+        $privacy_filter = $request->get_param( 'privacy' ); // 'Yes', 'No', or null
+
         // Categorise each requested field.
         $col_fields = array();
         $wants_role = false;
@@ -102,6 +112,14 @@ if ( ! function_exists( 'yedidya_db_extract_callback' ) ) {
         $result = array();
 
         foreach ( $users as $user ) {
+            // Privacy filter applies to the whole account (both user and partner rows).
+            if ( $privacy_filter ) {
+                $account_privacy = (string) get_user_meta( $user->ID, 'contact_list_privacy_setting', true );
+                if ( strcasecmp( $account_privacy, $privacy_filter ) !== 0 ) {
+                    continue;
+                }
+            }
+
             if ( $gender_filter ) {
                 $user_gender    = strtoupper( (string) get_user_meta( $user->ID, 'yourgender',    true ) );
                 $partner_gender = strtoupper( (string) get_user_meta( $user->ID, 'partnergender', true ) );
