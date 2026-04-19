@@ -11,9 +11,11 @@ from portal.gui.credentials_dialog import CredentialsDialog
 from portal.gui.action_window import MembersListWindow
 from portal.gui.delete_users_window import DeleteUsersWindow
 from portal.gui.db_extract_window import DbExtractWindow
+from portal.gui.post_event_window import PostEventWindow
 from portal.actions.members_list_action import MembersListAction
 from portal.actions.delete_users_action import DeleteUsersAction
 from portal.actions.db_extract_action import DbExtractAction
+from portal.actions.post_event_action import PostEventAction
 
 
 class MainWindow(tk.Tk):
@@ -28,7 +30,7 @@ class MainWindow(tk.Tk):
         self._env = tk.StringVar(value=saved_env if saved_env in ('staging', 'production') else 'staging')
         self._env.trace_add('write', self._on_env_change)
 
-        self._actions = [MembersListAction(), DeleteUsersAction(), DbExtractAction()]
+        self._actions = [MembersListAction(), DeleteUsersAction(), DbExtractAction(), PostEventAction()]
         self._build()
         self._check_credentials()
 
@@ -150,3 +152,5 @@ class MainWindow(tk.Tk):
             DeleteUsersWindow(self, action, env=env)
         elif isinstance(action, DbExtractAction):
             DbExtractWindow(self, action, env=env)
+        elif isinstance(action, PostEventAction):
+            PostEventWindow(self, action, env=env)
