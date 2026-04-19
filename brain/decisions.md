@@ -42,6 +42,16 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 
 ---
 
+## 2026-04-19 — No function_exists guards in portal PHP files
+
+**Decision:** Do not wrap functions in `function_exists()` guards in `gdpr-erase.php`, `member-export.php`, or other portal sub-files.
+
+**Why:** Guards silently hide duplicate function conflicts. Without them, a redeclaration causes an immediate PHP fatal, making the conflict obvious and forcing it to be resolved properly.
+
+**How to handle conflicts:** If a function is already defined by another active plugin, deactivate or delete that standalone plugin rather than adding guards. The portal plugin is the canonical home for this functionality.
+
+---
+
 ## 2026-03-22 — GDPR plugin: standalone, no WooCommerce core modifications
 
 **Decision:** GDPR erasure is implemented as a standalone plugin (`yedidya-gdpr-erase`) that calls WooCommerce classes. WooCommerce files are never modified.
