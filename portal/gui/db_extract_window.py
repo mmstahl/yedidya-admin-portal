@@ -65,11 +65,19 @@ class DbExtractWindow(tk.Toplevel):
         ttk.Button(btn_frame, text="Save",   width=6, command=self._save_preset).pack(side="left", padx=2)
         ttk.Button(btn_frame, text="Delete", width=6, command=self._delete_preset).pack(side="left", padx=2)
 
+        # Gender filter row
+        ttk.Label(fields_frame, text="Gender:").grid(row=1, column=0, sticky="e", **pad)
+        self._gender_var = tk.StringVar(value="—")
+        ttk.Combobox(
+            fields_frame, textvariable=self._gender_var,
+            values=["—", "Male", "Female"], state="readonly", width=10,
+        ).grid(row=1, column=1, sticky="w", **pad)
+
         # Field list entry
-        ttk.Label(fields_frame, text="Fields:").grid(row=1, column=0, sticky="ne", pady=(6, 4), padx=8)
+        ttk.Label(fields_frame, text="Fields:").grid(row=2, column=0, sticky="ne", pady=(6, 4), padx=8)
         self._fields_text = tk.Text(fields_frame, height=3, wrap="word",
                                     font=("Consolas", 9))
-        self._fields_text.grid(row=1, column=1, columnspan=2, sticky="ew", **pad)
+        self._fields_text.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
 
         ttk.Label(
             fields_frame,
@@ -77,7 +85,7 @@ class DbExtractWindow(tk.Toplevel):
                  "user_login and user_email are always included as the first two columns. "
                  "Add wp_users columns (e.g. display_name) or usermeta keys (e.g. first_name, cellphone1).",
             foreground="gray", font=("Segoe UI", 8), wraplength=420,
-        ).grid(row=2, column=1, columnspan=2, sticky="w", padx=8)
+        ).grid(row=3, column=1, columnspan=2, sticky="w", padx=8)
 
         # --- Output section ---
         output_frame = ttk.LabelFrame(self, text="Output", padding=8)
@@ -224,22 +232,26 @@ class DbExtractWindow(tk.Toplevel):
             messagebox.showwarning("No output path", "Choose an output CSV file.", parent=self)
             return
 
+        gender_raw = self._gender_var.get()
+        gender = gender_raw.lower() if gender_raw != "—" else None
+
         dm.set_default('db_extract', 'csv_path', csv_path)
 
         self._extract_btn.configure(state="disabled")
         self._log_clear()
         self._status_var.set("Extracting…")
         self._log_write(f"Fields: {', '.join(fields)}\n")
+        self._log_write(f"Gender: {gender_raw}\n")
         self._log_write(f"Output: {csv_path}\n\n")
 
         threading.Thread(
             target=self._run_extract,
-            args=(fields, csv_path),
+            args=(fields, csv_path, gender),
             daemon=True,
         ).start()
 
-    def _run_extract(self, fields, csv_path):
-        result = self.action.run(fields=fields, csv_path=csv_path, env=self.env)
+    def _run_extract(self, fields, csv_path, gender):
+        result = self.action.run(fields=fields, csv_path=csv_path, env=self.env, gender=gender)
         self.after(0, self._finish_extract, result)
 
     def _finish_extract(self, result):

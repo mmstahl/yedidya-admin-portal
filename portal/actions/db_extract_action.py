@@ -22,7 +22,8 @@ class DbExtractAction(BaseAction):
     # what the caller specifies.
     FIXED_FIELDS = ['user_login', 'user_email']
 
-    def run(self, fields: list[str], csv_path: str, env: str = 'staging') -> ActionResult:
+    def run(self, fields: list[str], csv_path: str, env: str = 'staging',
+            gender: str | None = None) -> ActionResult:
         """
         Fetch the requested fields for every user and write to csv_path.
 
@@ -32,20 +33,24 @@ class DbExtractAction(BaseAction):
         fields   — additional field names (wp_users columns and/or usermeta keys)
         csv_path — absolute path for the output CSV
         env      — 'staging' or 'production'
+        gender   — 'male', 'female', or None (no filter)
         """
-        # Build full field list: fixed first, then caller fields (no duplicates).
+        # Build full field list: record_type first, then fixed, then caller fields.
         extra = [f for f in fields if f not in self.FIXED_FIELDS]
-        all_fields = self.FIXED_FIELDS + extra
+        all_fields = ['record_type'] + self.FIXED_FIELDS + extra
 
         wp_url  = get_cred('wp_url',      env)
         wp_user = get_cred('wp_user',     env)
         wp_pass = get_cred('wp_password', env)
 
         try:
-            url = f"{wp_url.rstrip('/')}{DB_EXTRACT_ENDPOINT}"
+            url    = f"{wp_url.rstrip('/')}{DB_EXTRACT_ENDPOINT}"
+            params = {'fields': ','.join(f for f in all_fields if f != 'record_type')}
+            if gender:
+                params['gender'] = gender
             resp = requests.get(
                 url,
-                params={'fields': ','.join(all_fields)},
+                params=params,
                 auth=(wp_user, wp_pass),
                 timeout=60,
             )
@@ -63,7 +68,7 @@ class DbExtractAction(BaseAction):
 
         try:
             with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.DictWriter(f, fieldnames=all_fields, extrasaction='ignore')
+                writer = csv.DictWriter(f, fieldnames=all_fields, extrasaction='raise')
                 writer.writeheader()
                 writer.writerows(rows)
         except Exception as e:
