@@ -35,7 +35,7 @@ class PostEventAction(BaseAction):
         try:
             resp = requests.get(
                 f"{base}/wp-json/wp/v2/posts",
-                params={'slug': TEMPLATE_SLUG, 'context': 'edit'},
+                params={'slug': TEMPLATE_SLUG, 'context': 'edit', 'status': 'any'},
                 auth=auth, timeout=30,
             )
             if resp.status_code == 401:
