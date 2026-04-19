@@ -273,11 +273,11 @@ class DbExtractWindow(tk.Toplevel):
         else:
             self._log_write(f"Error: {result.message}\n")
             self._status_var.set("Failed.")
-        self._extract_btn.configure(state="normal")
             if "401" in result.message:
                 from portal.gui.credentials_dialog import CredentialsDialog
                 CredentialsDialog(self, on_save=lambda: self._status_var.set(
                     "Credentials updated. Try again."))
+        self._extract_btn.configure(state="normal")
 
     # ------------------------------------------------------------------
     # Log helpers
