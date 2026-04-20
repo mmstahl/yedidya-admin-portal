@@ -86,6 +86,36 @@ When the GDPR checkbox is ticked, a confirmation prompt will appear before the p
 
 ---
 
+## Post/Update Event
+
+Creates a new event post on the website, or updates one that already exists, based on a reusable template.
+
+**How to run:**
+
+1. Click **Go** next to *Post/Update Event*.
+2. Select a **Template** from the dropdown. The template determines which fields appear and which placeholder text gets replaced in the post.
+3. Fill in the fields:
+
+| Field | What it does |
+|-------|-------------|
+| Title | The post title. Used to check whether the post already exists. |
+| Date | Replaces the date placeholder in the template. |
+| Description | Replaces the description placeholder in the template. |
+| Image | Replaces the image in the template. Click **Browse…** to select a file from your PC, or **Paste from clipboard** to use an image you've already copied. A preview is shown after selection. |
+
+4. Select one or more **Categories** from the list (optional). Hold Ctrl to select multiple.
+5. Click **Create Post** (or **Update Post** if the post already exists — the button label updates automatically when you finish typing the title).
+
+The post is saved as **published** and visible on the site immediately.
+
+**If the post title already exists**, the portal updates that post in place rather than creating a duplicate. The button label changes to *Update Post* to make this clear.
+
+**To delete a post:**
+
+Click **Delete Post**. The portal looks up the post by the title currently in the Title field, asks you to confirm, and permanently removes it. This cannot be undone.
+
+---
+
 ## Updating Credentials
 
 Click **Update Credentials** in the top-right of the main window at any time.
