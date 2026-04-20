@@ -5,8 +5,9 @@ Flow:
   1. User picks a template — fields shown/hidden accordingly.
   2. User fills in Title plus the template-specific fields.
   3. User selects one or more categories (not remembered between invocations).
-  4. "Create Post" runs in a background thread.
+  4. "Create Post" / "Update Post" runs in a background thread.
   5. Result shown in the log; window stays open for consecutive runs.
+  6. "Delete Post" looks up the post by title, confirms, then deletes permanently.
 """
 import os
 import tempfile
@@ -37,7 +38,7 @@ CATEGORIES = [
 class PostEventWindow(tk.Toplevel):
     def __init__(self, parent, action: PostEventAction, env='staging'):
         super().__init__(parent)
-        self.title(f"Post & Event — {env.capitalize()}")
+        self.title(f"Post/Update Event — {env.capitalize()}")
         self.resizable(True, True)
         self.grab_set()
         self.action  = action
@@ -46,8 +47,7 @@ class PostEventWindow(tk.Toplevel):
         self._image_path  = None
         self._image_temp  = False
         self._thumb_photo = None
-        # Maps field name → (label_widget, content_widget) for optional rows.
-        self._field_rows  = {}
+        self._field_rows  = {}   # name → (label_widget, content_widget)
 
         self._build()
         self._load_defaults()
@@ -60,8 +60,8 @@ class PostEventWindow(tk.Toplevel):
 
     def _build(self):
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)  # category frame
-        self.rowconfigure(2, weight=1)  # log frame
+        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
         pad = {"padx": 8, "pady": 4}
 
@@ -83,10 +83,12 @@ class PostEventWindow(tk.Toplevel):
         # Title (always visible)
         ttk.Label(details, text="Title:").grid(row=1, column=0, sticky="e", **pad)
         self._title_var = tk.StringVar()
-        ttk.Entry(details, textvariable=self._title_var).grid(
-            row=1, column=1, columnspan=2, sticky="ew", **pad)
+        self._title_var.trace_add('write', self._on_title_edited)
+        self._title_entry = ttk.Entry(details, textvariable=self._title_var)
+        self._title_entry.grid(row=1, column=1, columnspan=2, sticky="ew", **pad)
+        self._title_entry.bind("<FocusOut>", lambda _: self._check_title_exists())
 
-        # Date (optional — shown based on template)
+        # Date (optional)
         lbl_date = ttk.Label(details, text="Date:")
         lbl_date.grid(row=2, column=0, sticky="e", **pad)
         self._date_var = tk.StringVar()
@@ -122,7 +124,6 @@ class PostEventWindow(tk.Toplevel):
         self._thumb_label = ttk.Label(details)
         self._thumb_label.grid(row=5, column=1, sticky="w", padx=8, pady=(0, 4))
         self._field_rows['image'] = (lbl_img, img_frame)
-        # Thumbnail row shares visibility with image field.
         self._thumb_row = self._thumb_label
 
         # ── Category section ───────────────────────────────────────────────
@@ -156,14 +157,17 @@ class PostEventWindow(tk.Toplevel):
         # ── Bottom bar ─────────────────────────────────────────────────────
         bottom = ttk.Frame(self)
         bottom.grid(row=3, column=0, sticky="ew", padx=12, pady=(4, 12))
-        bottom.columnconfigure(0, weight=1)
+        bottom.columnconfigure(1, weight=1)
+
+        self._delete_btn = ttk.Button(bottom, text="Delete Post", command=self._on_delete)
+        self._delete_btn.grid(row=0, column=0, sticky="w")
 
         self._status_var = tk.StringVar(value="Select a template and fill in the details.")
         ttk.Label(bottom, textvariable=self._status_var,
-                  foreground="gray").grid(row=0, column=0, sticky="w")
+                  foreground="gray").grid(row=0, column=1, sticky="w", padx=(12, 0))
 
         btn_row = ttk.Frame(bottom)
-        btn_row.grid(row=0, column=1, sticky="e")
+        btn_row.grid(row=0, column=2, sticky="e")
         ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="right", padx=(4, 0))
         self._create_btn = ttk.Button(btn_row, text="Create Post", command=self._on_create)
         self._create_btn.pack(side="right")
@@ -174,8 +178,7 @@ class PostEventWindow(tk.Toplevel):
 
     def _on_template_change(self, *_):
         template = self._template_var.get()
-        config   = TEMPLATES.get(template, {})
-        fields   = config.get('fields', [])
+        fields   = TEMPLATES.get(template, {}).get('fields', [])
 
         for name, (lbl, widget) in self._field_rows.items():
             if name in fields:
@@ -185,11 +188,35 @@ class PostEventWindow(tk.Toplevel):
                 lbl.grid_remove()
                 widget.grid_remove()
 
-        # Thumbnail follows image field visibility.
         if 'image' in fields:
             self._thumb_row.grid()
         else:
             self._thumb_row.grid_remove()
+
+    # ------------------------------------------------------------------
+    # Title → button label
+    # ------------------------------------------------------------------
+
+    def _on_title_edited(self, *_):
+        """Reset button label as soon as the user starts editing the title."""
+        self._create_btn.configure(text="Create Post")
+
+    def _check_title_exists(self):
+        """On focus-out: ask WP whether a post with this title already exists."""
+        title = self._title_var.get().strip()
+        if not title:
+            return
+        threading.Thread(
+            target=self._run_check_title, args=(title,), daemon=True,
+        ).start()
+
+    def _run_check_title(self, title):
+        result = self.action.find_post(title=title, env=self.env)
+        exists = result.success and result.data is not None
+        self.after(0, self._update_create_btn_label, exists)
+
+    def _update_create_btn_label(self, exists):
+        self._create_btn.configure(text="Update Post" if exists else "Create Post")
 
     # ------------------------------------------------------------------
     # Defaults / persistence  (categories intentionally excluded)
@@ -206,6 +233,7 @@ class PostEventWindow(tk.Toplevel):
         title = dm.get('post_event', 'title')
         if title:
             self._title_var.set(title)
+            self.after(200, self._check_title_exists)
 
         date = dm.get('post_event', 'date')
         if date:
@@ -276,7 +304,7 @@ class PostEventWindow(tk.Toplevel):
             self._thumb_label.configure(image="", text="(preview unavailable)")
 
     # ------------------------------------------------------------------
-    # Create post
+    # Create / Update post
     # ------------------------------------------------------------------
 
     def _on_create(self):
@@ -285,8 +313,7 @@ class PostEventWindow(tk.Toplevel):
             messagebox.showwarning("No template", "Select a template.", parent=self)
             return
 
-        config = TEMPLATES[template]
-        fields = config.get('fields', [])
+        fields = TEMPLATES[template].get('fields', [])
 
         title = self._title_var.get().strip()
         if not title:
@@ -312,8 +339,9 @@ class PostEventWindow(tk.Toplevel):
 
         self._save_defaults(template, title, date, description, image_path)
         self._create_btn.configure(state="disabled")
+        self._delete_btn.configure(state="disabled")
         self._log_clear()
-        self._status_var.set("Creating post…")
+        self._status_var.set("Saving post…")
         self._log_write(f"Template:    {template}\n")
         self._log_write(f"Title:       {title}\n")
         if date:
@@ -346,6 +374,7 @@ class PostEventWindow(tk.Toplevel):
             if result.data:
                 self._log_write(f"URL: {result.data}\n")
             self._status_var.set("Post saved.")
+            self._create_btn.configure(text="Update Post")
         else:
             self._log_write(f"Error: {result.message}\n")
             self._status_var.set("Failed.")
@@ -354,6 +383,75 @@ class PostEventWindow(tk.Toplevel):
                 CredentialsDialog(self, on_save=lambda: self._status_var.set(
                     "Credentials updated. Try again."))
         self._create_btn.configure(state="normal")
+        self._delete_btn.configure(state="normal")
+
+    # ------------------------------------------------------------------
+    # Delete post
+    # ------------------------------------------------------------------
+
+    def _on_delete(self):
+        title = self._title_var.get().strip()
+        if not title:
+            messagebox.showwarning("No title", "Enter a title to identify the post.", parent=self)
+            return
+
+        self._create_btn.configure(state="disabled")
+        self._delete_btn.configure(state="disabled")
+        self._status_var.set("Looking up post…")
+
+        threading.Thread(
+            target=self._run_find_for_delete, args=(title,), daemon=True,
+        ).start()
+
+    def _run_find_for_delete(self, title):
+        result = self.action.find_post(title=title, env=self.env)
+        self.after(0, self._confirm_delete, title, result)
+
+    def _confirm_delete(self, title, find_result):
+        if not find_result.success:
+            self._log_write(f"Error: {find_result.message}\n")
+            self._status_var.set("Failed.")
+            self._create_btn.configure(state="normal")
+            self._delete_btn.configure(state="normal")
+            return
+
+        post_id = find_result.data
+        if post_id is None:
+            self._log_write(f"No post found with title '{title}'.\n")
+            self._status_var.set("Post not found.")
+            self._create_btn.configure(state="normal")
+            self._delete_btn.configure(state="normal")
+            return
+
+        if not messagebox.askyesno(
+            "Delete post",
+            f'Permanently delete "{title}"?\n\nThis cannot be undone.',
+            parent=self,
+        ):
+            self._status_var.set("Cancelled.")
+            self._create_btn.configure(state="normal")
+            self._delete_btn.configure(state="normal")
+            return
+
+        self._status_var.set("Deleting…")
+        threading.Thread(
+            target=self._run_delete, args=(post_id,), daemon=True,
+        ).start()
+
+    def _run_delete(self, post_id):
+        result = self.action.delete(post_id=post_id, env=self.env)
+        self.after(0, self._finish_delete, result)
+
+    def _finish_delete(self, result):
+        if result.success:
+            self._log_write(f"Done. {result.message}\n")
+            self._status_var.set("Post deleted.")
+            self._create_btn.configure(text="Create Post")
+        else:
+            self._log_write(f"Error: {result.message}\n")
+            self._status_var.set("Failed.")
+        self._create_btn.configure(state="normal")
+        self._delete_btn.configure(state="normal")
 
     # ------------------------------------------------------------------
     # Log helpers

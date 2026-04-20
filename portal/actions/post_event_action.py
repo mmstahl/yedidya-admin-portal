@@ -40,18 +40,59 @@ TEMPLATES = {
 
 
 class PostEventAction(BaseAction):
-    name = "Post & Event"
+    name = "Post/Update event"
     description = "Create or update an event post from a template"
+
+    # ------------------------------------------------------------------
+    # Helpers shared by run(), the window's title-check, and delete flow
+    # ------------------------------------------------------------------
+
+    def _auth(self, env):
+        return (get_cred('wp_user', env), get_cred('wp_password', env))
+
+    def find_post(self, title: str, env: str = 'staging') -> ActionResult:
+        """Return ActionResult with data=post_id (int) if found, data=None if not."""
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            resp = requests.get(
+                f"{base}/wp-json/wp/v2/posts",
+                params={'search': title, 'status': 'any', 'context': 'edit', 'per_page': 20},
+                auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            for p in resp.json():
+                if p.get('title', {}).get('raw', '').strip() == title:
+                    return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
+            return ActionResult(True, "Not found", data=None)
+        except Exception as e:
+            return ActionResult(False, f"Search failed: {e}")
+
+    def delete(self, post_id: int, env: str = 'staging') -> ActionResult:
+        """Permanently delete a post (bypasses trash)."""
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            resp = requests.delete(
+                f"{base}/wp-json/wp/v2/posts/{post_id}",
+                params={'force': True},
+                auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            return ActionResult(True, f"Post {post_id} permanently deleted.")
+        except Exception as e:
+            return ActionResult(False, f"Delete failed: {e}")
 
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
             env: str = 'staging') -> ActionResult:
 
-        wp_url  = get_cred('wp_url',      env)
-        wp_user = get_cred('wp_user',     env)
-        wp_pass = get_cred('wp_password', env)
-        auth    = (wp_user, wp_pass)
-        base    = wp_url.rstrip('/')
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
 
         tpl_config   = TEMPLATES.get(template, {})
         placeholders = tpl_config.get('placeholders', {})
@@ -151,20 +192,10 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, "No image block found in the template content.")
 
         # ── 6. Create or update published post ────────────────────────────
-        existing_id = None
-        try:
-            search_resp = requests.get(
-                f"{base}/wp-json/wp/v2/posts",
-                params={'search': title, 'status': 'any', 'context': 'edit', 'per_page': 20},
-                auth=auth, timeout=30,
-            )
-            search_resp.raise_for_status()
-            for p in search_resp.json():
-                if p.get('title', {}).get('raw', '').strip() == title:
-                    existing_id = p['id']
-                    break
-        except Exception as e:
-            return ActionResult(False, f"Failed to search for existing post: {e}")
+        find_result = self.find_post(title, env)
+        if not find_result.success:
+            return find_result
+        existing_id = find_result.data
 
         post_body = {
             'title':      title,
