@@ -105,6 +105,7 @@ class PostEventWindow(tk.Toplevel):
         self._build_lang_tab(he_tab, 'he')
         self._build_lang_tab(en_tab, 'en')
         self._setup_sync_bindings()
+        self._notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
 
         # ── Log ────────────────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -245,6 +246,15 @@ class PostEventWindow(tk.Toplevel):
 
     def _on_cat_select(self, lang):
         self._selected_cat_indices[lang] = set(self._cat_listbox[lang].curselection())
+
+    def _on_tab_changed(self, _=None):
+        for lang in ('he', 'en'):
+            lb = self._cat_listbox[lang]
+            if lb is None:
+                continue
+            lb.selection_clear(0, tk.END)
+            for i in self._selected_cat_indices[lang]:
+                lb.selection_set(i)
 
     def _sync_str(self, field, he_var, en_var):
         if field not in self._synced:
