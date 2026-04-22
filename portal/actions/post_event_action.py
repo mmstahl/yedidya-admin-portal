@@ -36,6 +36,13 @@ TEMPLATES = {
             'description': 'Description-of-this-event',
         },
     },
+    'event-template-2': {
+        'label':  'Event Template 2',
+        'fields': ['image', 'caption'],
+        'placeholders': {
+            'title_content': 'Event Template 2 (Header, Description, Image link)',
+        },
+    },
 }
 
 
@@ -89,7 +96,7 @@ class PostEventAction(BaseAction):
 
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
-            env: str = 'staging') -> ActionResult:
+            caption: str = '', env: str = 'staging') -> ActionResult:
 
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
@@ -119,6 +126,8 @@ class PostEventAction(BaseAction):
             return ActionResult(False, "Template post has no raw content.")
 
         # ── 2. Replace text placeholders ──────────────────────────────────
+        if 'title_content' in placeholders and title:
+            content = content.replace(placeholders['title_content'], title)
         if 'date' in placeholders and date:
             content = content.replace(placeholders['date'], date)
         if 'description' in placeholders and description:
@@ -177,10 +186,15 @@ class PostEventAction(BaseAction):
             new_url = media['source_url']
 
             # ── 5. Replace first image block ──────────────────────────────
+            figcaption = (
+                f'<figcaption class="wp-element-caption">{caption}</figcaption>'
+                if caption else ''
+            )
             new_block = (
                 f'<!-- wp:image {{"id":{new_id},"sizeSlug":"large","linkDestination":"none"}} -->\n'
                 f'<figure class="wp-block-image size-large">'
                 f'<img src="{new_url}" alt="" class="wp-image-{new_id}"/>'
+                f'{figcaption}'
                 f'</figure>\n'
                 f'<!-- /wp:image -->'
             )

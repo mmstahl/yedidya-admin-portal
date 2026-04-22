@@ -128,6 +128,13 @@ class PostEventWindow(tk.Toplevel):
         self._field_rows['image'] = (lbl_img, img_frame)
         self._thumb_row = self._thumb_label
 
+        # Caption (optional)
+        lbl_cap = ttk.Label(details, text="Caption:")
+        lbl_cap.grid(row=6, column=0, sticky="ne", **pad)
+        self._caption_text = tk.Text(details, height=3, wrap="word", font=("Segoe UI", 9))
+        self._caption_text.grid(row=6, column=1, columnspan=2, sticky="ew", **pad)
+        self._field_rows['caption'] = (lbl_cap, self._caption_text)
+
         # ── Category section ───────────────────────────────────────────────
         cat_frame = ttk.LabelFrame(self, text="Category", padding=8)
         cat_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=4)
@@ -249,11 +256,16 @@ class PostEventWindow(tk.Toplevel):
         if image_path and os.path.exists(image_path):
             self._set_image(image_path, is_temp=False)
 
-    def _save_defaults(self, template, title, date, description, image_path):
+        caption = dm.get('post_event', 'caption')
+        if caption:
+            self._caption_text.insert("1.0", caption)
+
+    def _save_defaults(self, template, title, date, description, image_path, caption=''):
         dm.set_default('post_event', 'template',    template)
         dm.set_default('post_event', 'title',       title)
         dm.set_default('post_event', 'date',        date)
         dm.set_default('post_event', 'description', description)
+        dm.set_default('post_event', 'caption',     caption)
         if image_path and not self._image_temp:
             dm.set_default('post_event', 'image_path', image_path)
 
@@ -337,9 +349,11 @@ class PostEventWindow(tk.Toplevel):
             messagebox.showwarning("Missing image", "Select or paste an image.", parent=self)
             return
 
+        caption = self._caption_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
+
         categories = [CATEGORIES[i] for i in self._cat_listbox.curselection()]
 
-        self._save_defaults(template, title, date, description, image_path)
+        self._save_defaults(template, title, date, description, image_path, caption)
         self._create_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
         self._log_clear()
@@ -352,21 +366,23 @@ class PostEventWindow(tk.Toplevel):
             self._log_write(f"Description: {description[:60]}{'…' if len(description) > 60 else ''}\n")
         if image_path:
             self._log_write(f"Image:       {self._img_path_var.get()}\n")
+        if caption:
+            self._log_write(f"Caption:     {caption[:60]}{'…' if len(caption) > 60 else ''}\n")
         if categories:
             self._log_write(f"Categories:  {', '.join(categories)}\n")
         self._log_write("\n")
 
         threading.Thread(
             target=self._run_create,
-            args=(template, title, categories, date, description, image_path),
+            args=(template, title, categories, date, description, image_path, caption),
             daemon=True,
         ).start()
 
-    def _run_create(self, template, title, categories, date, description, image_path):
+    def _run_create(self, template, title, categories, date, description, image_path, caption):
         result = self.action.run(
             template=template, title=title, categories=categories,
             date=date, description=description, image_path=image_path,
-            env=self.env,
+            caption=caption, env=self.env,
         )
         self.after(0, self._finish_create, result)
 
