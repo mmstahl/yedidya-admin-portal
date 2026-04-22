@@ -49,7 +49,8 @@ class PostEventWindow(tk.Toplevel):
         self.action = action
         self.env    = env
 
-        self._synced = set()  # Hebrew fields already copied to English (resets each session)
+        self._synced         = set()   # Hebrew fields already copied to English (resets each session)
+        self._restoring_cats = False   # suppresses _on_cat_select during programmatic restore
 
         # Per-language image state
         self._image_path  = {'he': None, 'en': None}
@@ -245,9 +246,12 @@ class PostEventWindow(tk.Toplevel):
             lambda _: self._sync_text('caption', self._caption_he_text, self._caption_en_text))
 
     def _on_cat_select(self, lang):
+        if self._restoring_cats:
+            return
         self._selected_cat_indices[lang] = set(self._cat_listbox[lang].curselection())
 
     def _on_tab_changed(self, _=None):
+        self._restoring_cats = True
         for lang in ('he', 'en'):
             lb = self._cat_listbox[lang]
             if lb is None:
@@ -255,6 +259,7 @@ class PostEventWindow(tk.Toplevel):
             lb.selection_clear(0, tk.END)
             for i in self._selected_cat_indices[lang]:
                 lb.selection_set(i)
+        self._restoring_cats = False
 
     def _sync_str(self, field, he_var, en_var):
         if field not in self._synced:
@@ -347,6 +352,7 @@ class PostEventWindow(tk.Toplevel):
             if image_path and os.path.exists(image_path):
                 self._set_image(image_path, is_temp=False, lang=lang)
 
+        self._restoring_cats = True
         for lang in ('he', 'en'):
             saved_cats = dm.get('post_event', f'categories_{lang}')
             if saved_cats:
@@ -355,6 +361,7 @@ class PostEventWindow(tk.Toplevel):
                     if cat in saved_set:
                         self._cat_listbox[lang].selection_set(i)
                         self._selected_cat_indices[lang].add(i)
+        self._restoring_cats = False
 
         if dm.get('post_event', 'title_he'):
             self.after(200, self._check_title_exists)
