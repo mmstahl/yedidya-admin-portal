@@ -110,6 +110,7 @@ class PostEventWindow(tk.Toplevel):
         cat_frame.columnconfigure(0, weight=1)
         cat_frame.rowconfigure(0, weight=1)
 
+        self._selected_cat_indices = set()
         self._cat_listbox = tk.Listbox(
             cat_frame, selectmode=tk.MULTIPLE,
             height=len(CATEGORIES), font=("Segoe UI", 10),
@@ -118,6 +119,8 @@ class PostEventWindow(tk.Toplevel):
         for cat in CATEGORIES:
             self._cat_listbox.insert(tk.END, cat)
         self._cat_listbox.grid(row=0, column=0, sticky="nsew")
+        self._cat_listbox.bind('<<ListboxSelect>>', self._on_cat_select)
+        self._notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
 
         # ── Log ────────────────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -244,6 +247,14 @@ class PostEventWindow(tk.Toplevel):
         self._caption_he_text.bind("<FocusOut>",
             lambda _: self._sync_text('caption', self._caption_he_text, self._caption_en_text))
 
+    def _on_cat_select(self, _=None):
+        self._selected_cat_indices = set(self._cat_listbox.curselection())
+
+    def _on_tab_changed(self, _=None):
+        self._cat_listbox.selection_clear(0, tk.END)
+        for i in self._selected_cat_indices:
+            self._cat_listbox.selection_set(i)
+
     def _sync_str(self, field, he_var, en_var):
         if field not in self._synced:
             self._synced.add(field)
@@ -341,6 +352,7 @@ class PostEventWindow(tk.Toplevel):
             for i, cat in enumerate(CATEGORIES):
                 if cat in saved_set:
                     self._cat_listbox.selection_set(i)
+                    self._selected_cat_indices.add(i)
 
         if dm.get('post_event', 'title_he'):
             self.after(200, self._check_title_exists)
