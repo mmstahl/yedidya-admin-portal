@@ -368,6 +368,17 @@ class PostEventWindow(tk.Toplevel):
                        ("All files", "*.*")],
         )
         if path:
+            filename = os.path.basename(path)
+            try:
+                filename.encode('ascii')
+            except UnicodeEncodeError:
+                messagebox.showwarning(
+                    "Non-English filename",
+                    f'The filename "{filename}" contains non-English characters.\n\n'
+                    "Please rename the file using English characters only and try again.",
+                    parent=self,
+                )
+                return
             self._set_image(path, is_temp=False, lang=lang)
 
     def _paste_image(self, lang):
