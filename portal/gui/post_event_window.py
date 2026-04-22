@@ -32,6 +32,8 @@ CATEGORIES = [
     'ידיעות ידידיה',
     'ללא קטגוריה',
     'עדכוני שבעה',
+    'Upcoming Events',
+    'מידע נוסף',
 ]
 
 
@@ -134,7 +136,7 @@ class PostEventWindow(tk.Toplevel):
 
         self._cat_listbox = tk.Listbox(
             cat_frame, selectmode=tk.MULTIPLE,
-            height=len(CATEGORIES), font=("Segoe UI", 10),
+            height=len(CATEGORIES), font=("Segoe UI", 10),  # auto-sizes to list length
             activestyle="none",
         )
         for cat in CATEGORIES:
