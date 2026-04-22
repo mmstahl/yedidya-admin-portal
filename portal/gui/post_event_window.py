@@ -49,8 +49,7 @@ class PostEventWindow(tk.Toplevel):
         self.action = action
         self.env    = env
 
-        self._synced         = set()   # Hebrew fields already copied to English (resets each session)
-        self._restoring_cats = False   # suppresses _on_cat_select during programmatic restore
+        self._synced = set()  # Hebrew fields already copied to English (resets each session)
 
         # Per-language image state
         self._image_path  = {'he': None, 'en': None}
@@ -230,7 +229,7 @@ class PostEventWindow(tk.Toplevel):
         for cat in CATEGORIES:
             cat_lb.insert(tk.END, cat)
         cat_lb.grid(row=6, column=1, columnspan=2, sticky="ew", **pad)
-        cat_lb.bind('<<ListboxSelect>>', lambda _, l=lang: self._on_cat_select(l))
+        cat_lb.bind('<ButtonRelease-1>', lambda _, l=lang: self.after(0, lambda: self._save_cat_selection(l)))
         self._cat_listbox[lang] = cat_lb
 
     def _setup_sync_bindings(self):
@@ -245,13 +244,10 @@ class PostEventWindow(tk.Toplevel):
         self._caption_he_text.bind("<FocusOut>",
             lambda _: self._sync_text('caption', self._caption_he_text, self._caption_en_text))
 
-    def _on_cat_select(self, lang):
-        if self._restoring_cats:
-            return
+    def _save_cat_selection(self, lang):
         self._selected_cat_indices[lang] = set(self._cat_listbox[lang].curselection())
 
     def _on_tab_changed(self, _=None):
-        self._restoring_cats = True
         for lang in ('he', 'en'):
             lb = self._cat_listbox[lang]
             if lb is None:
@@ -259,7 +255,6 @@ class PostEventWindow(tk.Toplevel):
             lb.selection_clear(0, tk.END)
             for i in self._selected_cat_indices[lang]:
                 lb.selection_set(i)
-        self._restoring_cats = False
 
     def _sync_str(self, field, he_var, en_var):
         if field not in self._synced:
@@ -315,7 +310,10 @@ class PostEventWindow(tk.Toplevel):
         self.after(0, self._update_create_btn_label, exists)
 
     def _update_create_btn_label(self, exists):
-        self._create_btn.configure(text="Update Post" if exists else "Create Post")
+        try:
+            self._create_btn.configure(text="Update Post" if exists else "Create Post")
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # Defaults / persistence  (categories intentionally excluded)
@@ -352,7 +350,6 @@ class PostEventWindow(tk.Toplevel):
             if image_path and os.path.exists(image_path):
                 self._set_image(image_path, is_temp=False, lang=lang)
 
-        self._restoring_cats = True
         for lang in ('he', 'en'):
             saved_cats = dm.get('post_event', f'categories_{lang}')
             if saved_cats:
@@ -361,7 +358,6 @@ class PostEventWindow(tk.Toplevel):
                     if cat in saved_set:
                         self._cat_listbox[lang].selection_set(i)
                         self._selected_cat_indices[lang].add(i)
-        self._restoring_cats = False
 
         if dm.get('post_event', 'title_he'):
             self.after(200, self._check_title_exists)
@@ -488,8 +484,11 @@ class PostEventWindow(tk.Toplevel):
         img_en   = self._image_path['en'] if 'image' in fields else ''
         cap_en   = self._caption_en_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
-        categories_he = [CATEGORIES[i] for i in self._cat_listbox['he'].curselection()]
-        categories_en = [CATEGORIES[i] for i in self._cat_listbox['en'].curselection()]
+        # Read visible tab's listbox live; use stored indices for the hidden tab
+        current_lang = 'he' if self._notebook.index(self._notebook.select()) == 0 else 'en'
+        self._selected_cat_indices[current_lang] = set(self._cat_listbox[current_lang].curselection())
+        categories_he = [CATEGORIES[i] for i in sorted(self._selected_cat_indices['he'])]
+        categories_en = [CATEGORIES[i] for i in sorted(self._selected_cat_indices['en'])]
 
         lang_data = {
             'he': {'title': title_he, 'date': date_he, 'description': desc_he,
