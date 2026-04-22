@@ -104,23 +104,28 @@ class PostEventAction(BaseAction):
         tpl_config   = TEMPLATES.get(template, {})
         placeholders = tpl_config.get('placeholders', {})
 
-        # ── 1. Fetch template (try posts then pages) ───────────────────────
-        params = {'slug': template, 'context': 'edit', 'status': 'any'}
+        # ── 1. Fetch template (posts then pages; each tried with and without lang=en) ──
         posts = []
         for post_type in ('posts', 'pages'):
-            try:
-                resp = requests.get(
-                    f"{base}/wp-json/wp/v2/{post_type}",
-                    params=params, auth=auth, timeout=30,
-                )
-                if resp.status_code == 401:
-                    return ActionResult(False, "401 Unauthorized — check credentials.")
-                resp.raise_for_status()
-                posts = resp.json()
-                if posts:
-                    break
-            except Exception as e:
-                return ActionResult(False, f"Failed to fetch template: {e}")
+            for lang in (None, 'en'):
+                params = {'slug': template, 'context': 'edit', 'status': 'any'}
+                if lang:
+                    params['lang'] = lang
+                try:
+                    resp = requests.get(
+                        f"{base}/wp-json/wp/v2/{post_type}",
+                        params=params, auth=auth, timeout=30,
+                    )
+                    if resp.status_code == 401:
+                        return ActionResult(False, "401 Unauthorized — check credentials.")
+                    resp.raise_for_status()
+                    posts = resp.json()
+                    if posts:
+                        break
+                except Exception as e:
+                    return ActionResult(False, f"Failed to fetch template: {e}")
+            if posts:
+                break
 
         if not posts:
             return ActionResult(False, f"Template post '{template}' not found.")
