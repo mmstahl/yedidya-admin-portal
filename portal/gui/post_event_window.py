@@ -335,11 +335,19 @@ class PostEventWindow(tk.Toplevel):
             if image_path and os.path.exists(image_path):
                 self._set_image(image_path, is_temp=False, lang=lang)
 
+        saved_cats = dm.get('post_event', 'categories')
+        if saved_cats:
+            saved_set = set(saved_cats.split('|'))
+            for i, cat in enumerate(CATEGORIES):
+                if cat in saved_set:
+                    self._cat_listbox.selection_set(i)
+
         if dm.get('post_event', 'title_he'):
             self.after(200, self._check_title_exists)
 
-    def _save_defaults(self, template, lang_data):
+    def _save_defaults(self, template, lang_data, categories):
         dm.set_default('post_event', 'template', template)
+        dm.set_default('post_event', 'categories', '|'.join(categories))
         for lang in ('he', 'en'):
             d = lang_data[lang]
             dm.set_default('post_event', f'title_{lang}',       d.get('title', ''))
@@ -455,7 +463,7 @@ class PostEventWindow(tk.Toplevel):
             'en': {'title': title_en, 'date': date_en, 'description': desc_en,
                    'image_path': img_en, 'caption': cap_en},
         }
-        self._save_defaults(template, lang_data)
+        self._save_defaults(template, lang_data, categories)
         self._create_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
         self._log_clear()

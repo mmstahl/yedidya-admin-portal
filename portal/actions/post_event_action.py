@@ -13,6 +13,7 @@ Flow:
 import os
 import re
 import requests
+from urllib.parse import quote
 
 from portal.actions.base_action import BaseAction, ActionResult
 from portal.credentials.credential_manager import get as get_cred
@@ -181,7 +182,7 @@ class PostEventAction(BaseAction):
                     media_resp = requests.post(
                         f"{base}/wp-json/wp/v2/media",
                         headers={
-                            'Content-Disposition': f'attachment; filename="{filename}"',
+                            'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}",
                             'Content-Type': mime,
                         },
                         data=f.read(),
