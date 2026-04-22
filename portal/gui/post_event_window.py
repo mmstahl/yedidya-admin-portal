@@ -56,9 +56,11 @@ class PostEventWindow(tk.Toplevel):
         self._image_temp  = {'he': False, 'en': False}
         self._thumb_photo = {'he': None, 'en': None}
 
-        # Per-language field-row pairs for show/hide, and thumb labels
-        self._field_rows = {'he': {}, 'en': {}}
-        self._thumb_rows = {'he': None, 'en': None}
+        # Per-language field-row pairs for show/hide, thumb labels, and category listboxes
+        self._field_rows           = {'he': {}, 'en': {}}
+        self._thumb_rows           = {'he': None, 'en': None}
+        self._cat_listbox          = {'he': None, 'en': None}
+        self._selected_cat_indices = {'he': set(), 'en': set()}
 
         self._build()
         self._load_defaults()
@@ -103,24 +105,6 @@ class PostEventWindow(tk.Toplevel):
         self._build_lang_tab(he_tab, 'he')
         self._build_lang_tab(en_tab, 'en')
         self._setup_sync_bindings()
-
-        # ── Categories ─────────────────────────────────────────────────
-        cat_frame = ttk.LabelFrame(self, text="Category", padding=8)
-        cat_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=4)
-        cat_frame.columnconfigure(0, weight=1)
-        cat_frame.rowconfigure(0, weight=1)
-
-        self._selected_cat_indices = set()
-        self._cat_listbox = tk.Listbox(
-            cat_frame, selectmode=tk.MULTIPLE,
-            height=len(CATEGORIES), font=("Segoe UI", 10),
-            activestyle="none",
-        )
-        for cat in CATEGORIES:
-            self._cat_listbox.insert(tk.END, cat)
-        self._cat_listbox.grid(row=0, column=0, sticky="nsew")
-        self._cat_listbox.bind('<<ListboxSelect>>', self._on_cat_select)
-        self._notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
 
         # ── Log ────────────────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -235,6 +219,18 @@ class PostEventWindow(tk.Toplevel):
         else:
             self._caption_en_text = cap_text
 
+        # Categories
+        ttk.Label(parent, text="Categories:").grid(row=6, column=0, sticky="ne", **pad)
+        cat_lb = tk.Listbox(
+            parent, selectmode=tk.MULTIPLE,
+            height=len(CATEGORIES), font=("Segoe UI", 10), activestyle="none",
+        )
+        for cat in CATEGORIES:
+            cat_lb.insert(tk.END, cat)
+        cat_lb.grid(row=6, column=1, columnspan=2, sticky="ew", **pad)
+        cat_lb.bind('<<ListboxSelect>>', lambda _, l=lang: self._on_cat_select(l))
+        self._cat_listbox[lang] = cat_lb
+
     def _setup_sync_bindings(self):
         """Bind Hebrew FocusOut → auto-copy to English (once per field per session)."""
         self._title_he_entry.bind("<FocusOut>",
@@ -247,13 +243,8 @@ class PostEventWindow(tk.Toplevel):
         self._caption_he_text.bind("<FocusOut>",
             lambda _: self._sync_text('caption', self._caption_he_text, self._caption_en_text))
 
-    def _on_cat_select(self, _=None):
-        self._selected_cat_indices = set(self._cat_listbox.curselection())
-
-    def _on_tab_changed(self, _=None):
-        self._cat_listbox.selection_clear(0, tk.END)
-        for i in self._selected_cat_indices:
-            self._cat_listbox.selection_set(i)
+    def _on_cat_select(self, lang):
+        self._selected_cat_indices[lang] = set(self._cat_listbox[lang].curselection())
 
     def _sync_str(self, field, he_var, en_var):
         if field not in self._synced:
@@ -346,20 +337,22 @@ class PostEventWindow(tk.Toplevel):
             if image_path and os.path.exists(image_path):
                 self._set_image(image_path, is_temp=False, lang=lang)
 
-        saved_cats = dm.get('post_event', 'categories')
-        if saved_cats:
-            saved_set = set(saved_cats.split('|'))
-            for i, cat in enumerate(CATEGORIES):
-                if cat in saved_set:
-                    self._cat_listbox.selection_set(i)
-                    self._selected_cat_indices.add(i)
+        for lang in ('he', 'en'):
+            saved_cats = dm.get('post_event', f'categories_{lang}')
+            if saved_cats:
+                saved_set = set(saved_cats.split('|'))
+                for i, cat in enumerate(CATEGORIES):
+                    if cat in saved_set:
+                        self._cat_listbox[lang].selection_set(i)
+                        self._selected_cat_indices[lang].add(i)
 
         if dm.get('post_event', 'title_he'):
             self.after(200, self._check_title_exists)
 
-    def _save_defaults(self, template, lang_data, categories):
+    def _save_defaults(self, template, lang_data, categories_he, categories_en):
         dm.set_default('post_event', 'template', template)
-        dm.set_default('post_event', 'categories', '|'.join(categories))
+        dm.set_default('post_event', 'categories_he', '|'.join(categories_he))
+        dm.set_default('post_event', 'categories_en', '|'.join(categories_en))
         for lang in ('he', 'en'):
             d = lang_data[lang]
             dm.set_default('post_event', f'title_{lang}',       d.get('title', ''))
@@ -478,15 +471,16 @@ class PostEventWindow(tk.Toplevel):
         img_en   = self._image_path['en'] if 'image' in fields else ''
         cap_en   = self._caption_en_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
-        categories = [CATEGORIES[i] for i in self._cat_listbox.curselection()]
+        categories_he = [CATEGORIES[i] for i in self._cat_listbox['he'].curselection()]
+        categories_en = [CATEGORIES[i] for i in self._cat_listbox['en'].curselection()]
 
         lang_data = {
             'he': {'title': title_he, 'date': date_he, 'description': desc_he,
-                   'image_path': img_he, 'caption': cap_he},
+                   'image_path': img_he, 'caption': cap_he, 'categories': categories_he},
             'en': {'title': title_en, 'date': date_en, 'description': desc_en,
-                   'image_path': img_en, 'caption': cap_en},
+                   'image_path': img_en, 'caption': cap_en, 'categories': categories_en},
         }
-        self._save_defaults(template, lang_data, categories)
+        self._save_defaults(template, lang_data, categories_he, categories_en)
         self._create_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
         self._log_clear()
@@ -510,17 +504,17 @@ class PostEventWindow(tk.Toplevel):
             if d['caption']:
                 s = d['caption']
                 self._log_write(f"  Caption: {s[:60]}{'…' if len(s) > 60 else ''}\n")
-        if categories:
-            self._log_write(f"\nCategories: {', '.join(categories)}\n")
+            if d['categories']:
+                self._log_write(f"  Categories: {', '.join(d['categories'])}\n")
         self._log_write("\n")
 
         threading.Thread(
             target=self._run_create,
-            args=(template, lang_data, categories),
+            args=(template, lang_data),
             daemon=True,
         ).start()
 
-    def _run_create(self, template, lang_data, categories):
+    def _run_create(self, template, lang_data):
         results = {}
         for lang in ('he', 'en'):
             d = lang_data[lang]
@@ -530,7 +524,7 @@ class PostEventWindow(tk.Toplevel):
             results[lang] = self.action.run(
                 template=template,
                 title=d['title'],
-                categories=categories,
+                categories=d['categories'],
                 date=d['date'],
                 description=d['description'],
                 image_path=d['image_path'],
