@@ -13,7 +13,7 @@ Flow:
 import os
 import re
 import requests
-from urllib.parse import quote
+import unicodedata
 
 from portal.actions.base_action import BaseAction, ActionResult
 from portal.credentials.credential_manager import get as get_cred
@@ -178,11 +178,16 @@ class PostEventAction(BaseAction):
                 }
                 mime = mime_map.get(ext, 'image/jpeg')
 
+                # Header filename must be ASCII; strip non-ASCII chars, keep extension
+                ascii_name = unicodedata.normalize('NFKD', filename).encode('ascii', 'ignore').decode('ascii').strip()
+                if not ascii_name or ascii_name == ext:
+                    ascii_name = f"image{ext}"
+
                 with open(image_path, 'rb') as f:
                     media_resp = requests.post(
                         f"{base}/wp-json/wp/v2/media",
                         headers={
-                            'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}",
+                            'Content-Disposition': f'attachment; filename="{ascii_name}"',
                             'Content-Type': mime,
                         },
                         data=f.read(),
