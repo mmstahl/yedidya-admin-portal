@@ -57,14 +57,17 @@ class PostEventAction(BaseAction):
     def _auth(self, env):
         return (get_cred('wp_user', env), get_cred('wp_password', env))
 
-    def find_post(self, title: str, env: str = 'staging') -> ActionResult:
+    def find_post(self, title: str, env: str = 'staging', lang: str = '') -> ActionResult:
         """Return ActionResult with data=post_id (int) if found, data=None if not."""
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
         try:
+            params = {'search': title, 'status': 'any', 'context': 'edit', 'per_page': 20}
+            if lang:
+                params['lang'] = lang
             resp = requests.get(
                 f"{base}/wp-json/wp/v2/posts",
-                params={'search': title, 'status': 'any', 'context': 'edit', 'per_page': 20},
+                params=params,
                 auth=auth, timeout=30,
             )
             if resp.status_code == 401:
@@ -96,7 +99,7 @@ class PostEventAction(BaseAction):
 
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
-            caption: str = '', env: str = 'staging') -> ActionResult:
+            caption: str = '', lang: str = '', env: str = 'staging') -> ActionResult:
 
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
@@ -215,7 +218,7 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, "No image block found in the template content.")
 
         # ── 6. Create or update published post ────────────────────────────
-        find_result = self.find_post(title, env)
+        find_result = self.find_post(title, env, lang=lang)
         if not find_result.success:
             return find_result
         existing_id = find_result.data
@@ -226,6 +229,8 @@ class PostEventAction(BaseAction):
             'status':     'publish',
             'categories': cat_ids,
         }
+        if lang:
+            post_body['lang'] = lang
 
         try:
             if existing_id:

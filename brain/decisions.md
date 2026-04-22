@@ -52,6 +52,16 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 
 ---
 
+## 2026-04-22 — Bilingual post creation: Option C implemented, Option B deferred
+
+**Decision:** Implemented Option C — separate Hebrew and English content fields in the portal UI, two independent API calls (one per language) with `lang=he` / `lang=en`.
+
+**Option B (deferred):** Link the two posts as WPML translations by passing `icl_translation_of=<he_post_id>` in the English post creation call. Return point: `post_event_action.py › run()` step 6 (create/update post). The `lang` param is already wired through. Missing piece: thread the Hebrew post ID from the first call's result into the second call, and add it to `post_body` as `icl_translation_of`. Exact WPML REST API field name needs testing (`icl_translation_of` is most likely).
+
+**Why deferred:** Option B requires knowing the exact WPML parameter name for translation linking and testing it. Option C gives the user bilingual posts immediately with minimal risk.
+
+---
+
 ## 2026-03-22 — GDPR plugin: standalone, no WooCommerce core modifications
 
 **Decision:** GDPR erasure is implemented as a standalone plugin (`yedidya-gdpr-erase`) that calls WooCommerce classes. WooCommerce files are never modified.
