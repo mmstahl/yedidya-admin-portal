@@ -165,41 +165,26 @@ class PostEventAction(BaseAction):
             except Exception as e:
                 return ActionResult(False, f"Failed to fetch categories: {e}")
 
-        # ── 4. Resolve or upload image ─────────────────────────────────────
-        if image_path and 'image' in tpl_config.get('fields', []):
-            filename = os.path.basename(image_path)
-            ext      = os.path.splitext(filename)[1].lower()
-            mime_map = {
-                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                '.png': 'image/png',  '.gif': 'image/gif',
-                '.webp': 'image/webp',
-            }
-            mime = mime_map.get(ext, 'image/jpeg')
+        # ── 4. Find existing post (needed before image step) ──────────────
+        find_result = self.find_post(title, env, lang=lang)
+        if not find_result.success:
+            return find_result
+        existing_id = find_result.data
 
-            # Search media library for an existing file with the same name
+        # ── 5. Resolve or upload image ─────────────────────────────────────
+        if 'image' in tpl_config.get('fields', []):
             new_id = new_url = None
-            try:
-                search_term = os.path.splitext(filename)[0]  # title stored without extension
-                search_resp = requests.get(
-                    f"{base}/wp-json/wp/v2/media",
-                    params={'search': search_term, 'per_page': 50},
-                    auth=auth, timeout=30,
-                )
-                if search_resp.status_code == 200:
-                    local_size = os.path.getsize(image_path)
-                    for item in search_resp.json():
-                        if item.get('source_url', '').rsplit('/', 1)[-1] != filename:
-                            continue
-                        wp_size = item.get('media_details', {}).get('filesize')
-                        if wp_size is not None and wp_size != local_size:
-                            continue  # same name, different size — not the same file
-                        new_id  = item['id']
-                        new_url = item['source_url']
-                        break
-            except Exception:
-                pass  # search failure is non-fatal; fall through to upload
 
-            if new_id is None:
+            if image_path:
+                # User explicitly selected a new image — upload it
+                filename = os.path.basename(image_path)
+                ext      = os.path.splitext(filename)[1].lower()
+                mime_map = {
+                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',  '.gif': 'image/gif',
+                    '.webp': 'image/webp',
+                }
+                mime = mime_map.get(ext, 'image/jpeg')
                 try:
                     with open(image_path, 'rb') as f:
                         media_resp = requests.post(
@@ -220,31 +205,54 @@ class PostEventAction(BaseAction):
                 except Exception as e:
                     return ActionResult(False, f"Failed to upload image: {e}")
 
-            # ── 5. Replace first image block ──────────────────────────────
-            figcaption = (
-                f'<figcaption class="wp-element-caption">{caption}</figcaption>'
-                if caption else ''
-            )
-            new_block = (
-                f'<!-- wp:image {{"id":{new_id},"sizeSlug":"large","linkDestination":"none"}} -->\n'
-                f'<figure class="wp-block-image size-large">'
-                f'<img src="{new_url}" alt="" class="wp-image-{new_id}"/>'
-                f'{figcaption}'
-                f'</figure>\n'
-                f'<!-- /wp:image -->'
-            )
-            content, n_replaced = re.subn(
-                r'<!-- wp:image[^\n]*-->([\s\S]*?)<!-- /wp:image -->',
-                new_block, content, count=1,
-            )
-            if n_replaced == 0:
-                return ActionResult(False, "No image block found in the template content.")
+            elif existing_id:
+                # No new image — reuse the image already embedded in the existing post
+                try:
+                    post_resp = requests.get(
+                        f"{base}/wp-json/wp/v2/posts/{existing_id}",
+                        params={'context': 'edit'},
+                        auth=auth, timeout=30,
+                    )
+                    post_resp.raise_for_status()
+                    existing_content = post_resp.json().get('content', {}).get('raw', '')
+                    m = re.search(r'<!-- wp:image \{"id":(\d+)', existing_content)
+                    if m:
+                        media_id   = int(m.group(1))
+                        media_resp = requests.get(
+                            f"{base}/wp-json/wp/v2/media/{media_id}",
+                            auth=auth, timeout=30,
+                        )
+                        if media_resp.status_code == 200:
+                            media_data = media_resp.json()
+                            new_id  = media_data['id']
+                            new_url = media_data['source_url']
+                except Exception:
+                    pass  # non-fatal — template image block will remain as-is
+                if new_id is None:
+                    warnings.append("Could not retrieve existing image; template image placeholder used.")
+
+            if new_id:
+                # ── Replace first image block ──────────────────────────
+                figcaption = (
+                    f'<figcaption class="wp-element-caption">{caption}</figcaption>'
+                    if caption else ''
+                )
+                new_block = (
+                    f'<!-- wp:image {{"id":{new_id},"sizeSlug":"large","linkDestination":"none"}} -->\n'
+                    f'<figure class="wp-block-image size-large">'
+                    f'<img src="{new_url}" alt="" class="wp-image-{new_id}"/>'
+                    f'{figcaption}'
+                    f'</figure>\n'
+                    f'<!-- /wp:image -->'
+                )
+                content, n_replaced = re.subn(
+                    r'<!-- wp:image[^\n]*-->([\s\S]*?)<!-- /wp:image -->',
+                    new_block, content, count=1,
+                )
+                if n_replaced == 0:
+                    return ActionResult(False, "No image block found in the template content.")
 
         # ── 6. Create or update published post ────────────────────────────
-        find_result = self.find_post(title, env, lang=lang)
-        if not find_result.success:
-            return find_result
-        existing_id = find_result.data
 
         post_body = {
             'title':      title,

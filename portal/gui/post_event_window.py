@@ -53,9 +53,10 @@ class PostEventWindow(tk.Toplevel):
         self._synced = set()  # Hebrew fields already copied to English (resets each session)
 
         # Per-language image state
-        self._image_path  = {'he': None, 'en': None}
-        self._image_temp  = {'he': False, 'en': False}
-        self._thumb_photo = {'he': None, 'en': None}
+        self._image_path     = {'he': None, 'en': None}
+        self._image_temp     = {'he': False, 'en': False}
+        self._thumb_photo    = {'he': None, 'en': None}
+        self._image_user_set = {'he': False, 'en': False}  # True only if user picked image this session
 
         # Per-language field-row pairs for show/hide and thumb labels
         self._field_rows = {'he': {}, 'en': {}}
@@ -393,6 +394,9 @@ class PostEventWindow(tk.Toplevel):
                 )
                 return
             self._set_image(path, is_temp=False, lang=lang)
+            self._image_user_set[lang] = True
+            if lang == 'he' and self._image_path['en'] == path:
+                self._image_user_set['en'] = True
 
     def _paste_image(self, lang):
         if not _PIL_AVAILABLE:
@@ -406,6 +410,9 @@ class PostEventWindow(tk.Toplevel):
         img.save(tmp.name, 'PNG')
         tmp.close()
         self._set_image(tmp.name, is_temp=True, lang=lang)
+        self._image_user_set[lang] = True
+        if lang == 'he' and self._image_path['en'] == tmp.name:
+            self._image_user_set['en'] = True
 
     def _set_image(self, path, is_temp, lang):
         old = self._image_path[lang]
@@ -466,8 +473,9 @@ class PostEventWindow(tk.Toplevel):
             messagebox.showwarning("Missing description", "Enter a description (Hebrew tab).", parent=self)
             return
 
-        img_he = self._image_path['he'] if 'image' in fields else ''
-        if 'image' in fields and not img_he:
+        is_update = self._create_btn.cget('text') == 'Update Post'
+        img_he = self._image_path['he'] if ('image' in fields and self._image_user_set['he']) else ''
+        if 'image' in fields and not img_he and not is_update:
             messagebox.showwarning("Missing image", "Select or paste an image (Hebrew tab).", parent=self)
             return
 
@@ -476,7 +484,7 @@ class PostEventWindow(tk.Toplevel):
         title_en = self._title_en_var.get().strip()
         date_en  = self._date_en_var.get().strip() if 'date' in fields else ''
         desc_en  = self._desc_en_text.get("1.0", tk.END).strip() if 'description' in fields else ''
-        img_en   = self._image_path['en'] if 'image' in fields else ''
+        img_en   = self._image_path['en'] if ('image' in fields and self._image_user_set['en']) else ''
         cap_en   = self._caption_en_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
         lang_data = {
