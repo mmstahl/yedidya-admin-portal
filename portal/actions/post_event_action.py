@@ -165,37 +165,55 @@ class PostEventAction(BaseAction):
             except Exception as e:
                 return ActionResult(False, f"Failed to fetch categories: {e}")
 
-        # ── 4. Upload image ────────────────────────────────────────────────
+        # ── 4. Resolve or upload image ─────────────────────────────────────
         if image_path and 'image' in tpl_config.get('fields', []):
+            filename = os.path.basename(image_path)
+            ext      = os.path.splitext(filename)[1].lower()
+            mime_map = {
+                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.png': 'image/png',  '.gif': 'image/gif',
+                '.webp': 'image/webp',
+            }
+            mime = mime_map.get(ext, 'image/jpeg')
+
+            # Search media library for an existing file with the same name
+            new_id = new_url = None
             try:
-                filename = os.path.basename(image_path)
-                ext      = os.path.splitext(filename)[1].lower()
-                mime_map = {
-                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                    '.png': 'image/png',  '.gif': 'image/gif',
-                    '.webp': 'image/webp',
-                }
-                mime = mime_map.get(ext, 'image/jpeg')
+                search_term = os.path.splitext(filename)[0]  # title stored without extension
+                search_resp = requests.get(
+                    f"{base}/wp-json/wp/v2/media",
+                    params={'search': search_term, 'per_page': 50},
+                    auth=auth, timeout=30,
+                )
+                if search_resp.status_code == 200:
+                    for item in search_resp.json():
+                        if item.get('source_url', '').rsplit('/', 1)[-1] == filename:
+                            new_id  = item['id']
+                            new_url = item['source_url']
+                            break
+            except Exception:
+                pass  # search failure is non-fatal; fall through to upload
 
-                with open(image_path, 'rb') as f:
-                    media_resp = requests.post(
-                        f"{base}/wp-json/wp/v2/media",
-                        headers={
-                            'Content-Disposition': f'attachment; filename="{filename}"',
-                            'Content-Type': mime,
-                        },
-                        data=f.read(),
-                        auth=auth, timeout=60,
-                    )
-                if media_resp.status_code == 401:
-                    return ActionResult(False, "401 Unauthorized — check credentials.")
-                media_resp.raise_for_status()
-                media = media_resp.json()
-            except Exception as e:
-                return ActionResult(False, f"Failed to upload image: {e}")
-
-            new_id  = media['id']
-            new_url = media['source_url']
+            if new_id is None:
+                try:
+                    with open(image_path, 'rb') as f:
+                        media_resp = requests.post(
+                            f"{base}/wp-json/wp/v2/media",
+                            headers={
+                                'Content-Disposition': f'attachment; filename="{filename}"',
+                                'Content-Type': mime,
+                            },
+                            data=f.read(),
+                            auth=auth, timeout=60,
+                        )
+                    if media_resp.status_code == 401:
+                        return ActionResult(False, "401 Unauthorized — check credentials.")
+                    media_resp.raise_for_status()
+                    media   = media_resp.json()
+                    new_id  = media['id']
+                    new_url = media['source_url']
+                except Exception as e:
+                    return ActionResult(False, f"Failed to upload image: {e}")
 
             # ── 5. Replace first image block ──────────────────────────────
             figcaption = (
