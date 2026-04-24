@@ -578,20 +578,13 @@ class PostEventWindow(tk.Toplevel):
                                    parent=self)
             return
 
-        parts = []
-        if title_he:
-            parts.append(f'  Hebrew:  "{title_he}"')
-        if title_en:
-            parts.append(f'  English: "{title_en}"')
-        count = len(parts)
-        noun  = f"{count} post" + ("s" if count > 1 else "")
-        msg   = (
-            f"The following {noun} will be permanently deleted:\n\n"
-            + "\n".join(parts)
-            + "\n\nThis cannot be undone."
-        )
-        if not messagebox.askyesno("Delete post", msg, parent=self):
+        choice = self._delete_confirm_dialog(title_he, title_en)
+        if choice is None:
             return
+        if choice == 'he':
+            title_en = ''
+        elif choice == 'en':
+            title_he = ''
 
         self._create_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
@@ -602,6 +595,42 @@ class PostEventWindow(tk.Toplevel):
             args=(title_he, title_en),
             daemon=True,
         ).start()
+
+    def _delete_confirm_dialog(self, title_he, title_en):
+        """Show a custom delete-confirmation dialog.
+        Returns 'both', 'he', 'en', or None (cancel)."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Delete post")
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        msg = "The following posts will be permanently deleted.\nSelect which to delete:\n"
+        if title_he:
+            msg += f'\n  Hebrew:  "{title_he}"'
+        if title_en:
+            msg += f'\n  English: "{title_en}"'
+        msg += "\n\nThis cannot be undone."
+        ttk.Label(dlg, text=msg, justify="left", padding=(16, 12)).pack()
+
+        result = tk.StringVar(value='cancel')
+
+        btn_frame = ttk.Frame(dlg, padding=(12, 0, 12, 12))
+        btn_frame.pack()
+        ttk.Button(btn_frame, text="Delete both",
+                   command=lambda: (result.set('both'), dlg.destroy())).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Delete only Hebrew",
+                   command=lambda: (result.set('he'), dlg.destroy())).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Delete only English",
+                   command=lambda: (result.set('en'), dlg.destroy())).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Cancel",
+                   command=dlg.destroy).pack(side="left", padx=4)
+
+        dlg.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width()  - dlg.winfo_width())  // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+        self.wait_window(dlg)
+        return None if result.get() == 'cancel' else result.get()
 
     def _run_delete_both(self, title_he, title_en):
         results = {}
