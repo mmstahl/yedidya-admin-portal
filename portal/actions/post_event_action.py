@@ -186,11 +186,16 @@ class PostEventAction(BaseAction):
                     auth=auth, timeout=30,
                 )
                 if search_resp.status_code == 200:
+                    local_size = os.path.getsize(image_path)
                     for item in search_resp.json():
-                        if item.get('source_url', '').rsplit('/', 1)[-1] == filename:
-                            new_id  = item['id']
-                            new_url = item['source_url']
-                            break
+                        if item.get('source_url', '').rsplit('/', 1)[-1] != filename:
+                            continue
+                        wp_size = item.get('media_details', {}).get('filesize')
+                        if wp_size is not None and wp_size != local_size:
+                            continue  # same name, different size — not the same file
+                        new_id  = item['id']
+                        new_url = item['source_url']
+                        break
             except Exception:
                 pass  # search failure is non-fatal; fall through to upload
 
