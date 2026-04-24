@@ -578,16 +578,19 @@ class PostEventWindow(tk.Toplevel):
                                    parent=self)
             return
 
-        lines = []
+        parts = []
         if title_he:
-            lines.append(f'  Hebrew:  "{title_he}"')
+            parts.append(f'  Hebrew:  "{title_he}"')
         if title_en:
-            lines.append(f'  English: "{title_en}"')
-        if not messagebox.askyesno(
-            "Delete post",
-            "Permanently delete:\n" + "\n".join(lines) + "\n\nThis cannot be undone.",
-            parent=self,
-        ):
+            parts.append(f'  English: "{title_en}"')
+        count = len(parts)
+        noun  = f"{count} post" + ("s" if count > 1 else "")
+        msg   = (
+            f"The following {noun} will be permanently deleted:\n\n"
+            + "\n".join(parts)
+            + "\n\nThis cannot be undone."
+        )
+        if not messagebox.askyesno("Delete post", msg, parent=self):
             return
 
         self._create_btn.configure(state="disabled")
