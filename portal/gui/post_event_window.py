@@ -50,7 +50,8 @@ class PostEventWindow(tk.Toplevel):
         self.action = action
         self.env    = env
 
-        self._synced = set()  # Hebrew fields already copied to English (resets each session)
+        self._synced      = set()   # Hebrew fields already copied to English (resets each session)
+        self._syncing_now = False   # True while auto-copying; prevents English edits marking as synced
 
         # Per-language image state
         self._image_path     = {'he': None, 'en': None}
@@ -70,6 +71,7 @@ class PostEventWindow(tk.Toplevel):
 
         self._build()
         self._load_defaults()
+        self._setup_english_edit_protection()
         self._center(parent)
         self.minsize(520, 640)
 
@@ -118,7 +120,7 @@ class PostEventWindow(tk.Toplevel):
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
-        self._log = tk.Text(log_frame, height=6, state="disabled",
+        self._log = tk.Text(log_frame, height=15, state="disabled",
                             font=("Consolas", 9), bg="#f8f8f8", relief="flat")
         scrollbar = ttk.Scrollbar(log_frame, command=self._log.yview)
         self._log.configure(yscrollcommand=scrollbar.set)
@@ -249,7 +251,11 @@ class PostEventWindow(tk.Toplevel):
     def _sync_str(self, field, he_var, en_var):
         if field not in self._synced:
             self._synced.add(field)
-            en_var.set(he_var.get())
+            self._syncing_now = True
+            try:
+                en_var.set(he_var.get())
+            finally:
+                self._syncing_now = False
 
     def _sync_text(self, field, he_widget, en_widget):
         if field not in self._synced:
@@ -257,6 +263,24 @@ class PostEventWindow(tk.Toplevel):
             content = he_widget.get("1.0", "end-1c")
             en_widget.delete("1.0", tk.END)
             en_widget.insert("1.0", content)
+
+    def _setup_english_edit_protection(self):
+        """Once any English field is manually edited, prevent Hebrew from overwriting it."""
+        def mark_str(field):
+            def _cb(*_):
+                if not self._syncing_now:
+                    self._synced.add(field)
+            return _cb
+
+        def mark_text(field):
+            def _cb(_event):
+                self._synced.add(field)
+            return _cb
+
+        self._title_en_var.trace_add('write', mark_str('title'))
+        self._date_en_var.trace_add('write',  mark_str('date'))
+        self._desc_en_text.bind('<Key>',    mark_text('description'))
+        self._caption_en_text.bind('<Key>', mark_text('caption'))
 
     # ------------------------------------------------------------------
     # Category helpers
@@ -395,8 +419,6 @@ class PostEventWindow(tk.Toplevel):
                 return
             self._set_image(path, is_temp=False, lang=lang)
             self._image_user_set[lang] = True
-            if lang == 'he' and self._image_path['en'] == path:
-                self._image_user_set['en'] = True
 
     def _paste_image(self, lang):
         if not _PIL_AVAILABLE:
@@ -411,8 +433,6 @@ class PostEventWindow(tk.Toplevel):
         tmp.close()
         self._set_image(tmp.name, is_temp=True, lang=lang)
         self._image_user_set[lang] = True
-        if lang == 'he' and self._image_path['en'] == tmp.name:
-            self._image_user_set['en'] = True
 
     def _set_image(self, path, is_temp, lang):
         old = self._image_path[lang]
@@ -474,17 +494,28 @@ class PostEventWindow(tk.Toplevel):
             return
 
         is_update = self._create_btn.cget('text') == 'Update Post'
-        img_he = self._image_path['he'] if ('image' in fields and self._image_user_set['he']) else ''
-        if 'image' in fields and not img_he and not is_update:
-            messagebox.showwarning("Missing image", "Select or paste an image (Hebrew tab).", parent=self)
-            return
+
+        # For updates, only pass image_path if user explicitly picked one this session.
+        # For creates, use whatever is loaded (from defaults or freshly picked).
+        if 'image' in fields:
+            if is_update:
+                img_he = self._image_path['he'] if self._image_user_set['he'] else ''
+            else:
+                img_he = self._image_path['he'] or ''
+                if not img_he:
+                    messagebox.showwarning("Missing image", "Select or paste an image (Hebrew tab).", parent=self)
+                    return
+        else:
+            img_he = ''
 
         cap_he = self._caption_he_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
         title_en = self._title_en_var.get().strip()
         date_en  = self._date_en_var.get().strip() if 'date' in fields else ''
         desc_en  = self._desc_en_text.get("1.0", tk.END).strip() if 'description' in fields else ''
-        img_en   = self._image_path['en'] if ('image' in fields and self._image_user_set['en']) else ''
+        # English image: only pass path if user explicitly picked one; otherwise let run() reuse
+        # Hebrew's uploaded media (for creates) or extract from the existing post (for updates).
+        img_en = self._image_path['en'] if ('image' in fields and self._image_user_set['en']) else ''
         cap_en   = self._caption_en_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
         lang_data = {
@@ -530,23 +561,40 @@ class PostEventWindow(tk.Toplevel):
         ).start()
 
     def _run_create(self, template, lang_data):
-        results = {}
+        results   = {}
+        he_media  = {'id': 0, 'url': ''}  # media uploaded for Hebrew; reused by English if not user-set
+
         for lang in ('he', 'en'):
             d = lang_data[lang]
             if not d['title']:
                 results[lang] = None
                 continue
-            results[lang] = self.action.run(
+
+            img_path = d['image_path']
+            extra    = {}
+            # English image not explicitly set → reuse whatever Hebrew uploaded (if any)
+            if lang == 'en' and not self._image_user_set['en'] and he_media['id']:
+                img_path = ''
+                extra = {'media_id': he_media['id'], 'media_url': he_media['url']}
+
+            result = self.action.run(
                 template=template,
                 title=d['title'],
                 categories=d['categories'],
                 date=d['date'],
                 description=d['description'],
-                image_path=d['image_path'],
+                image_path=img_path,
                 caption=d['caption'],
                 lang=lang,
                 env=self.env,
+                **extra,
             )
+            results[lang] = result
+
+            if lang == 'he' and result.success and isinstance(result.data, dict):
+                he_media['id']  = result.data.get('media_id', 0) or 0
+                he_media['url'] = result.data.get('media_url', '') or ''
+
         self.after(0, self._finish_create, results)
 
     def _finish_create(self, results):
@@ -558,8 +606,9 @@ class PostEventWindow(tk.Toplevel):
                 continue
             if result.success:
                 self._log_write(f"[{label}] Done. {result.message}\n")
-                if result.data:
-                    self._log_write(f"[{label}] URL: {result.data}\n")
+                link = (result.data.get('link', '') if isinstance(result.data, dict) else result.data) or ''
+                if link:
+                    self._log_write(f"[{label}] URL: {link}\n")
             else:
                 overall_ok = False
                 self._log_write(f"[{label}] Error: {result.message}\n")

@@ -99,10 +99,13 @@ class PostEventAction(BaseAction):
 
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
-            caption: str = '', lang: str = '', env: str = 'staging') -> ActionResult:
+            caption: str = '', lang: str = '', env: str = 'staging',
+            media_id: int = 0, media_url: str = '') -> ActionResult:
 
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
+
+        new_id = new_url = None  # set during image step; returned in result for caller reuse
 
         tpl_config   = TEMPLATES.get(template, {})
         placeholders = tpl_config.get('placeholders', {})
@@ -205,6 +208,11 @@ class PostEventAction(BaseAction):
                 except Exception as e:
                     return ActionResult(False, f"Failed to upload image: {e}")
 
+            elif media_id:
+                # Caller already uploaded the image (e.g. Hebrew post) — reuse that media item
+                new_id  = media_id
+                new_url = media_url
+
             elif existing_id:
                 # No new image — reuse the image already embedded in the existing post
                 try:
@@ -287,4 +295,8 @@ class PostEventAction(BaseAction):
         msg = f"Post {verb}. ID: {saved_post['id']}"
         if warnings:
             msg += "\nWarnings: " + "; ".join(warnings)
-        return ActionResult(True, msg, data=saved_post.get('link', ''))
+        return ActionResult(True, msg, data={
+            'link':      saved_post.get('link', ''),
+            'media_id':  new_id  or 0,
+            'media_url': new_url or '',
+        })
