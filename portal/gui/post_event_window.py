@@ -50,9 +50,6 @@ class PostEventWindow(tk.Toplevel):
         self.action = action
         self.env    = env
 
-        self._synced      = set()   # Hebrew fields already copied to English (resets each session)
-        self._syncing_now = False   # True while auto-copying; prevents English edits marking as synced
-
         # Per-language image state
         self._image_path     = {'he': None, 'en': None}
         self._image_temp     = {'he': False, 'en': False}
@@ -71,7 +68,6 @@ class PostEventWindow(tk.Toplevel):
 
         self._build()
         self._load_defaults()
-        self._setup_english_edit_protection()
         self._center(parent)
         self.minsize(520, 640)
 
@@ -112,7 +108,6 @@ class PostEventWindow(tk.Toplevel):
 
         self._build_lang_tab(he_tab, 'he')
         self._build_lang_tab(en_tab, 'en')
-        self._setup_sync_bindings()
 
         # ── Log ────────────────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -235,52 +230,6 @@ class PostEventWindow(tk.Toplevel):
             ttk.Checkbutton(
                 cat_frame, text=cat, variable=self._cat_vars[lang][cat],
             ).pack(anchor='w')
-
-    def _setup_sync_bindings(self):
-        """Bind Hebrew FocusOut → auto-copy to English (once per field per session)."""
-        self._title_he_entry.bind("<FocusOut>",
-            lambda _: self._sync_str('title', self._title_he_var, self._title_en_var),
-            add=True)
-        self._date_he_entry.bind("<FocusOut>",
-            lambda _: self._sync_str('date', self._date_he_var, self._date_en_var))
-        self._desc_he_text.bind("<FocusOut>",
-            lambda _: self._sync_text('description', self._desc_he_text, self._desc_en_text))
-        self._caption_he_text.bind("<FocusOut>",
-            lambda _: self._sync_text('caption', self._caption_he_text, self._caption_en_text))
-
-    def _sync_str(self, field, he_var, en_var):
-        if field not in self._synced:
-            self._synced.add(field)
-            self._syncing_now = True
-            try:
-                en_var.set(he_var.get())
-            finally:
-                self._syncing_now = False
-
-    def _sync_text(self, field, he_widget, en_widget):
-        if field not in self._synced:
-            self._synced.add(field)
-            content = he_widget.get("1.0", "end-1c")
-            en_widget.delete("1.0", tk.END)
-            en_widget.insert("1.0", content)
-
-    def _setup_english_edit_protection(self):
-        """Once any English field is manually edited, prevent Hebrew from overwriting it."""
-        def mark_str(field):
-            def _cb(*_):
-                if not self._syncing_now:
-                    self._synced.add(field)
-            return _cb
-
-        def mark_text(field):
-            def _cb(_event):
-                self._synced.add(field)
-            return _cb
-
-        self._title_en_var.trace_add('write', mark_str('title'))
-        self._date_en_var.trace_add('write',  mark_str('date'))
-        self._desc_en_text.bind('<Key>',    mark_text('description'))
-        self._caption_en_text.bind('<Key>', mark_text('caption'))
 
     # ------------------------------------------------------------------
     # Category helpers
@@ -447,9 +396,6 @@ class PostEventWindow(tk.Toplevel):
         if lang == 'he':
             self._img_path_var_he.set(label)
             self._update_thumbnail(path, self._thumb_label_he, 'he')
-            if 'image' not in self._synced:
-                self._synced.add('image')
-                self._set_image(path, is_temp, 'en')
         else:
             self._img_path_var_en.set(label)
             self._update_thumbnail(path, self._thumb_label_en, 'en')
