@@ -512,9 +512,20 @@ class PostEventWindow(tk.Toplevel):
 
         date_en  = self._date_en_var.get().strip() if 'date' in fields else ''
         desc_en  = self._desc_en_text.get("1.0", tk.END).strip() if 'description' in fields else ''
-        # English image: only pass path if user explicitly picked one; otherwise let run() reuse
-        # Hebrew's uploaded media (for creates) or extract from the existing post (for updates).
-        img_en = self._image_path['en'] if ('image' in fields and self._image_user_set['en']) else ''
+        # English image resolution:
+        #   - User explicitly picked an English image → use it.
+        #   - Update with no new pick → pass '' so run() extracts from the existing post (Option C).
+        #   - Create with no explicit pick → fall back to the Hebrew image so the English post
+        #     isn't left with the template placeholder. Each language uploads independently.
+        if 'image' in fields:
+            if self._image_user_set['en']:
+                img_en = self._image_path['en'] or ''
+            elif is_update:
+                img_en = ''          # Option C: run() will extract from existing English post
+            else:
+                img_en = img_he      # Create: reuse Hebrew path (uploaded separately for English)
+        else:
+            img_en = ''
         cap_en   = self._caption_en_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
         lang_data = {
@@ -617,7 +628,7 @@ class PostEventWindow(tk.Toplevel):
                                    parent=self)
             return
 
-        choice = self._delete_confirm_dialog(title_he, title_en)
+        choice, delete_image = self._delete_confirm_dialog(title_he, title_en)
         if choice is None:
             return
         if choice == 'he':
@@ -631,13 +642,13 @@ class PostEventWindow(tk.Toplevel):
 
         threading.Thread(
             target=self._run_delete_both,
-            args=(title_he, title_en),
+            args=(title_he, title_en, delete_image),
             daemon=True,
         ).start()
 
     def _delete_confirm_dialog(self, title_he, title_en):
         """Show a custom delete-confirmation dialog.
-        Returns 'both', 'he', 'en', or None (cancel)."""
+        Returns (choice, delete_image) where choice is 'both'/'he'/'en'/None."""
         dlg = tk.Toplevel(self)
         dlg.title("Delete post")
         dlg.grab_set()
@@ -650,6 +661,12 @@ class PostEventWindow(tk.Toplevel):
             msg += f'\n  English: "{title_en}"'
         msg += "\n\nThis cannot be undone."
         ttk.Label(dlg, text=msg, justify="left", padding=(16, 12)).pack()
+
+        delete_image_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            dlg, text="Also delete the associated image",
+            variable=delete_image_var,
+        ).pack(anchor='w', padx=20, pady=(0, 8))
 
         result = tk.StringVar(value='cancel')
 
@@ -669,36 +686,63 @@ class PostEventWindow(tk.Toplevel):
         y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
         dlg.geometry(f"+{x}+{y}")
         self.wait_window(dlg)
-        return None if result.get() == 'cancel' else result.get()
+        if result.get() == 'cancel':
+            return None, False
+        return result.get(), delete_image_var.get()
 
-    def _run_delete_both(self, title_he, title_en):
+    def _run_delete_both(self, title_he, title_en, delete_image):
         results = {}
         for lang, title in (('he', title_he), ('en', title_en)):
             if not title:
-                results[lang] = None
+                results[lang] = {'post': None, 'media': None}
                 continue
+
             find = self.action.find_post(title=title, env=self.env, lang=lang)
             if not find.success:
-                results[lang] = find
-            elif find.data is None:
-                results[lang] = None
-            else:
-                results[lang] = self.action.delete(post_id=find.data, env=self.env)
+                results[lang] = {'post': find, 'media': None}
+                continue
+
+            post_id = find.data
+            if post_id is None:
+                results[lang] = {'post': None, 'media': None}
+                continue
+
+            # Fetch media ID before deleting the post (while content is still accessible)
+            media_id = self.action.get_post_media_id(post_id, env=self.env) if delete_image else 0
+
+            post_result = self.action.delete(post_id=post_id, env=self.env)
+
+            media_result = None
+            if delete_image and media_id and post_result.success:
+                media_result = self.action.delete_media(media_id=media_id, env=self.env)
+
+            results[lang] = {'post': post_result, 'media': media_result}
+
         self.after(0, self._finish_delete, results, title_he, title_en)
 
     def _finish_delete(self, results, title_he, title_en):
         overall_ok = True
         for lang, label, title in (('he', 'Hebrew', title_he), ('en', 'English', title_en)):
-            result = results.get(lang)
-            if result is None and not title:
+            r           = results.get(lang, {})
+            post_result = r.get('post')
+            media_result = r.get('media')
+
+            if post_result is None and not title:
                 continue
-            if result is None:
+            if post_result is None:
                 self._log_write(f"[{label}] No post found with title '{title}'.\n")
-            elif result.success:
-                self._log_write(f"[{label}] {result.message}\n")
+            elif post_result.success:
+                self._log_write(f"[{label}] {post_result.message}\n")
+                if media_result is not None:
+                    if media_result.success:
+                        self._log_write(f"[{label}] {media_result.message}\n")
+                    else:
+                        overall_ok = False
+                        self._log_write(f"[{label}] Image error: {media_result.message}\n")
             else:
                 overall_ok = False
-                self._log_write(f"[{label}] Error: {result.message}\n")
+                self._log_write(f"[{label}] Error: {post_result.message}\n")
+
         self._status_var.set("Deleted." if overall_ok else "Delete had errors — see log.")
         if overall_ok:
             self._create_btn.configure(text="Create Post")

@@ -97,6 +97,40 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Delete failed: {e}")
 
+    def get_post_media_id(self, post_id: int, env: str = 'staging') -> int:
+        """Return the first image block's media ID from a post's raw content, or 0 if not found."""
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            resp = requests.get(
+                f"{base}/wp-json/wp/v2/posts/{post_id}",
+                params={'context': 'edit'},
+                auth=auth, timeout=30,
+            )
+            resp.raise_for_status()
+            raw = resp.json().get('content', {}).get('raw', '')
+            m = re.search(r'<!-- wp:image \{"id":(\d+)', raw)
+            return int(m.group(1)) if m else 0
+        except Exception:
+            return 0
+
+    def delete_media(self, media_id: int, env: str = 'staging') -> ActionResult:
+        """Permanently delete a media item (bypasses trash)."""
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            resp = requests.delete(
+                f"{base}/wp-json/wp/v2/media/{media_id}",
+                params={'force': True},
+                auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            return ActionResult(True, f"Image {media_id} permanently deleted.")
+        except Exception as e:
+            return ActionResult(False, f"Image delete failed: {e}")
+
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
             caption: str = '', lang: str = '', env: str = 'staging',
