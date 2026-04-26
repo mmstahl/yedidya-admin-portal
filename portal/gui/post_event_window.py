@@ -457,6 +457,17 @@ class PostEventWindow(tk.Toplevel):
         cap_he = self._caption_he_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
 
         title_en = self._title_en_var.get().strip()
+
+        if title_en and title_he == title_en:
+            messagebox.showerror(
+                "Duplicate title",
+                "The Hebrew and English titles are identical.\n\n"
+                "Each language post must have a distinct title so WordPress can tell them apart. "
+                "Please give the English post a different title.",
+                parent=self,
+            )
+            return
+
         date_en  = self._date_en_var.get().strip() if 'date' in fields else ''
         desc_en  = self._desc_en_text.get("1.0", tk.END).strip() if 'description' in fields else ''
         # English image: only pass path if user explicitly picked one; otherwise let run() reuse
