@@ -176,15 +176,15 @@ class PostEventWindow(tk.Toplevel):
         # Description
         lbl_desc = ttk.Label(parent, text="Description:")
         lbl_desc.grid(row=2, column=0, sticky="ne", **pad)
-        desc_text = tk.Text(parent, height=4, wrap="char", font=("Segoe UI", 9))
-        desc_text.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
         if lang == 'he':
-            self._configure_rtl_text(desc_text)
-        self._field_rows[lang]['description'] = (lbl_desc, desc_text)
-        if lang == 'he':
+            desc_text, desc_grid_widget = self._make_rtl_text(parent, height=4, row=2, pad=pad)
             self._desc_he_text = desc_text
         else:
+            desc_text = tk.Text(parent, height=4, wrap="word", font=("Segoe UI", 9))
+            desc_text.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
+            desc_grid_widget = desc_text
             self._desc_en_text = desc_text
+        self._field_rows[lang]['description'] = (lbl_desc, desc_grid_widget)
 
         # Image
         lbl_img = ttk.Label(parent, text="Image:")
@@ -218,15 +218,15 @@ class PostEventWindow(tk.Toplevel):
         # Caption
         lbl_cap = ttk.Label(parent, text="Caption:")
         lbl_cap.grid(row=5, column=0, sticky="ne", **pad)
-        cap_text = tk.Text(parent, height=3, wrap="char", font=("Segoe UI", 9))
-        cap_text.grid(row=5, column=1, columnspan=2, sticky="ew", **pad)
         if lang == 'he':
-            self._configure_rtl_text(cap_text)
-        self._field_rows[lang]['caption'] = (lbl_cap, cap_text)
-        if lang == 'he':
+            cap_text, cap_grid_widget = self._make_rtl_text(parent, height=3, row=5, pad=pad)
             self._caption_he_text = cap_text
         else:
+            cap_text = tk.Text(parent, height=3, wrap="word", font=("Segoe UI", 9))
+            cap_text.grid(row=5, column=1, columnspan=2, sticky="ew", **pad)
+            cap_grid_widget = cap_text
             self._caption_en_text = cap_text
+        self._field_rows[lang]['caption'] = (lbl_cap, cap_grid_widget)
 
         # Categories — Checkbuttons backed by BooleanVars (persist across tab switches)
         ttk.Label(parent, text="Categories:").grid(row=6, column=0, sticky="ne", **pad)
@@ -237,16 +237,35 @@ class PostEventWindow(tk.Toplevel):
                 cat_frame, text=cat, variable=self._cat_vars[lang][cat],
             ).pack(anchor='w')
 
+    def _make_rtl_text(self, parent, height, row, pad):
+        """Create a no-wrap RTL Text widget inside a scrollable frame.
+
+        Returns (text_widget, frame) where frame is what should be gridded
+        and stored in _field_rows for show/hide, and text_widget is the
+        actual tk.Text used for reading/writing content.
+
+        Using wrap='none' eliminates the BiDi wrap confusion:
+        Hebrew characters render right-to-left within one long line and the
+        viewport scrolls horizontally to follow the cursor.  This avoids the
+        "text teleports to position 0" symptom that wrap='char'/'word' causes
+        with RTL text in tkinter.
+        """
+        frame = ttk.Frame(parent)
+        frame.grid(row=row, column=1, columnspan=2, sticky="ew", **pad)
+        frame.columnconfigure(0, weight=1)
+
+        text = tk.Text(frame, height=height, wrap='none', font=("Segoe UI", 9))
+        xsb  = ttk.Scrollbar(frame, orient='horizontal', command=text.xview)
+        text.configure(xscrollcommand=xsb.set)
+        text.grid(row=0, column=0, sticky='ew')
+        xsb.grid(row=1, column=0, sticky='ew')
+
+        self._configure_rtl_text(text)
+        return text, frame
+
     @staticmethod
     def _configure_rtl_text(widget):
-        """Set up a tk.Text widget for right-to-left (Hebrew) input.
-
-        Applies a right-justified paragraph tag to all content on every
-        keystroke and mouse click so that the visual alignment stays correct
-        as the user types.  wrap='char' (set at construction time) prevents
-        word-wrap from garbling Hebrew text since Hebrew word boundaries are
-        not ASCII spaces.
-        """
+        """Apply a right-justified paragraph tag on every keystroke/click."""
         widget.tag_configure('rtl', justify='right')
 
         def _apply(*_):
