@@ -462,8 +462,7 @@ class PostEventWindow(tk.Toplevel):
             messagebox.showerror(
                 "Duplicate title",
                 "The Hebrew and English titles are identical.\n\n"
-                "Each language post must have a distinct title so WordPress can tell them apart. "
-                "Please give the English post a different title.",
+                "Please ensure the Title of the Hebrew and English posts are different.",
                 parent=self,
             )
             return
