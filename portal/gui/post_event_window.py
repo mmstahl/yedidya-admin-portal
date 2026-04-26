@@ -147,7 +147,8 @@ class PostEventWindow(tk.Toplevel):
         # Title
         ttk.Label(parent, text="Title:").grid(row=0, column=0, sticky="e", **pad)
         title_var = tk.StringVar()
-        title_entry = ttk.Entry(parent, textvariable=title_var)
+        title_entry = ttk.Entry(parent, textvariable=title_var,
+                                justify='right' if lang == 'he' else 'left')
         title_entry.grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
         if lang == 'he':
             self._title_he_var   = title_var
@@ -162,7 +163,8 @@ class PostEventWindow(tk.Toplevel):
         lbl_date = ttk.Label(parent, text="Date:")
         lbl_date.grid(row=1, column=0, sticky="e", **pad)
         date_var = tk.StringVar()
-        date_entry = ttk.Entry(parent, textvariable=date_var)
+        date_entry = ttk.Entry(parent, textvariable=date_var,
+                               justify='right' if lang == 'he' else 'left')
         date_entry.grid(row=1, column=1, columnspan=2, sticky="ew", **pad)
         self._field_rows[lang]['date'] = (lbl_date, date_entry)
         if lang == 'he':
@@ -174,8 +176,10 @@ class PostEventWindow(tk.Toplevel):
         # Description
         lbl_desc = ttk.Label(parent, text="Description:")
         lbl_desc.grid(row=2, column=0, sticky="ne", **pad)
-        desc_text = tk.Text(parent, height=4, wrap="word", font=("Segoe UI", 9))
+        desc_text = tk.Text(parent, height=4, wrap="char", font=("Segoe UI", 9))
         desc_text.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
+        if lang == 'he':
+            self._configure_rtl_text(desc_text)
         self._field_rows[lang]['description'] = (lbl_desc, desc_text)
         if lang == 'he':
             self._desc_he_text = desc_text
@@ -214,8 +218,10 @@ class PostEventWindow(tk.Toplevel):
         # Caption
         lbl_cap = ttk.Label(parent, text="Caption:")
         lbl_cap.grid(row=5, column=0, sticky="ne", **pad)
-        cap_text = tk.Text(parent, height=3, wrap="word", font=("Segoe UI", 9))
+        cap_text = tk.Text(parent, height=3, wrap="char", font=("Segoe UI", 9))
         cap_text.grid(row=5, column=1, columnspan=2, sticky="ew", **pad)
+        if lang == 'he':
+            self._configure_rtl_text(cap_text)
         self._field_rows[lang]['caption'] = (lbl_cap, cap_text)
         if lang == 'he':
             self._caption_he_text = cap_text
@@ -230,6 +236,24 @@ class PostEventWindow(tk.Toplevel):
             ttk.Checkbutton(
                 cat_frame, text=cat, variable=self._cat_vars[lang][cat],
             ).pack(anchor='w')
+
+    @staticmethod
+    def _configure_rtl_text(widget):
+        """Set up a tk.Text widget for right-to-left (Hebrew) input.
+
+        Applies a right-justified paragraph tag to all content on every
+        keystroke and mouse click so that the visual alignment stays correct
+        as the user types.  wrap='char' (set at construction time) prevents
+        word-wrap from garbling Hebrew text since Hebrew word boundaries are
+        not ASCII spaces.
+        """
+        widget.tag_configure('rtl', justify='right')
+
+        def _apply(*_):
+            widget.tag_add('rtl', '1.0', 'end')
+
+        widget.bind('<KeyRelease>',    _apply)
+        widget.bind('<ButtonRelease>', _apply)
 
     # ------------------------------------------------------------------
     # Category helpers
@@ -517,40 +541,23 @@ class PostEventWindow(tk.Toplevel):
         ).start()
 
     def _run_create(self, template, lang_data):
-        results   = {}
-        he_media  = {'id': 0, 'url': ''}  # media uploaded for Hebrew; reused by English if not user-set
-
+        results = {}
         for lang in ('he', 'en'):
             d = lang_data[lang]
             if not d['title']:
                 results[lang] = None
                 continue
-
-            img_path = d['image_path']
-            extra    = {}
-            # English image not explicitly set → reuse whatever Hebrew uploaded (if any)
-            if lang == 'en' and not self._image_user_set['en'] and he_media['id']:
-                img_path = ''
-                extra = {'media_id': he_media['id'], 'media_url': he_media['url']}
-
-            result = self.action.run(
+            results[lang] = self.action.run(
                 template=template,
                 title=d['title'],
                 categories=d['categories'],
                 date=d['date'],
                 description=d['description'],
-                image_path=img_path,
+                image_path=d['image_path'],
                 caption=d['caption'],
                 lang=lang,
                 env=self.env,
-                **extra,
             )
-            results[lang] = result
-
-            if lang == 'he' and result.success and isinstance(result.data, dict):
-                he_media['id']  = result.data.get('media_id', 0) or 0
-                he_media['url'] = result.data.get('media_url', '') or ''
-
         self.after(0, self._finish_create, results)
 
     def _finish_create(self, results):
