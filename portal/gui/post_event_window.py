@@ -612,6 +612,10 @@ class PostEventWindow(tk.Toplevel):
         self._status_var.set("Post saved." if overall_ok else "One or more errors — see log.")
         if overall_ok:
             self._create_btn.configure(text="Update Post")
+            # Image was just saved to WordPress. Clear the "user set this session" flags so
+            # the next update doesn't re-upload the same image — Option C will reuse the
+            # media already embedded in the post.
+            self._image_user_set = {'he': False, 'en': False}
         self._create_btn.configure(state="normal")
         self._delete_btn.configure(state="normal")
 
