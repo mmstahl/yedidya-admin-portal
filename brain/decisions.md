@@ -62,6 +62,36 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 
 ---
 
+## 2026-04-25 — Image deduplication: Option C (reuse ID from post content)
+
+**Decision:** When updating a post without selecting a new image, reuse the media item already embedded in the existing post's Gutenberg block. Do not search by filename or filesize.
+
+**How it works:** `run()` calls `find_post()` before the image step. If the post exists and `image_path=''`, it fetches the post's raw content, extracts the media ID via `re.search(r'<!-- wp:image \{"id":(\d+)', raw)`, then calls `GET /wp-json/wp/v2/media/{id}` to get the current URL. The `_image_user_set` flag (per language) tracks whether the user explicitly picked a new image this session; it is reset to `False` after every successful save.
+
+**Alternatives rejected:**
+- Filename matching — WordPress renames uploads (e.g., `english.jpg` → `english-7.jpg`) whenever a file with the same base name exists, even in trash. Filename matching never finds the existing file.
+- Filesize comparison — unreliable; WordPress may re-encode images on upload.
+
+---
+
+## 2026-04-25 — Hebrew RTL text: wrap='none' + scrollbar
+
+**Decision:** Hebrew `tk.Text` fields (description, caption) use `wrap='none'` with a horizontal scrollbar, and a `justify='right'` tag applied on every keystroke. Hebrew `ttk.Entry` fields (title, date) use `justify='right'`.
+
+**Why:** tkinter has no Unicode BiDi engine. With `wrap='word'` or `wrap='char'`, the LTR wrap logic causes Hebrew text to "teleport" to position 0 of the next line when a line fills up. `wrap='none'` eliminates wrapping entirely — text scrolls horizontally, cursor always stays in the correct position relative to typed characters. Known remaining limitation: clicking in the middle of Hebrew text positions the cursor inaccurately (LTR mouse-to-index mapping vs RTL visual layout). This is a hard tkinter ceiling with no workaround.
+
+**Alternatives rejected:** `wrap='char'` — still caused the teleport bug. RFC 5987 Hebrew filenames in HTTP headers — WordPress.com staging returns 400; solution is to validate filenames are ASCII in the GUI.
+
+---
+
+## 2026-04-25 — Post/Update Event: no Hebrew→English auto-sync
+
+**Decision:** Each language tab (Hebrew, English) is fully independent. No automatic copying of Hebrew field values into English fields.
+
+**Why:** Initially implemented auto-sync (copy Hebrew to English on first FocusOut per field). Removed at user's explicit request — the user wants to write each language independently.
+
+---
+
 ## 2026-03-22 — GDPR plugin: standalone, no WooCommerce core modifications
 
 **Decision:** GDPR erasure is implemented as a standalone plugin (`yedidya-gdpr-erase`) that calls WooCommerce classes. WooCommerce files are never modified.
