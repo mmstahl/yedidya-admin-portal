@@ -42,6 +42,10 @@ TEMPLATES = {
         'placeholders': {
             'title_content': 'Event Template 2 (Header, Description, Image link)',
         },
+        # When True, the rendered image block links to the media file itself
+        # (opens in a new tab). Suitable for posts whose main purpose is to
+        # display a single shareable image.
+        'image_link': True,
     },
 }
 
@@ -301,10 +305,31 @@ class PostEventAction(BaseAction):
                     f'<figcaption class="wp-element-caption">{caption}</figcaption>'
                     if caption else ''
                 )
+
+                # Some templates want the image to be a clickable link to the
+                # media file itself, opening in a new tab. Controlled per
+                # template via the 'image_link' flag in TEMPLATES.
+                if tpl_config.get('image_link'):
+                    block_attrs = (
+                        f'{{"id":{new_id},"sizeSlug":"large",'
+                        f'"linkDestination":"media","linkTarget":"_blank",'
+                        f'"rel":"noreferrer noopener"}}'
+                    )
+                    img_html = (
+                        f'<a href="{new_url}" target="_blank" rel="noreferrer noopener">'
+                        f'<img src="{new_url}" alt="" class="wp-image-{new_id}"/>'
+                        f'</a>'
+                    )
+                else:
+                    block_attrs = (
+                        f'{{"id":{new_id},"sizeSlug":"large","linkDestination":"none"}}'
+                    )
+                    img_html = f'<img src="{new_url}" alt="" class="wp-image-{new_id}"/>'
+
                 new_block = (
-                    f'<!-- wp:image {{"id":{new_id},"sizeSlug":"large","linkDestination":"none"}} -->\n'
+                    f'<!-- wp:image {block_attrs} -->\n'
                     f'<figure class="wp-block-image size-large">'
-                    f'<img src="{new_url}" alt="" class="wp-image-{new_id}"/>'
+                    f'{img_html}'
                     f'{figcaption}'
                     f'</figure>\n'
                     f'<!-- /wp:image -->'
