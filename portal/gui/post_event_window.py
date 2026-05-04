@@ -97,6 +97,10 @@ class PostEventWindow(tk.Toplevel):
         self._template_cb.grid(row=0, column=1, sticky="w")
         self._template_cb.bind("<<ComboboxSelected>>", self._on_template_change)
 
+        ttk.Button(tpl_row, text="Show template info",
+                   command=self._on_show_template_info,
+                   ).grid(row=0, column=2, sticky="e", padx=(8, 0))
+
         # Language notebook
         self._notebook = ttk.Notebook(details)
         self._notebook.grid(row=1, column=0, sticky="ew")
@@ -332,6 +336,42 @@ class PostEventWindow(tk.Toplevel):
             self._create_btn.configure(text="Update Post" if exists else "Create Post")
         except tk.TclError:
             pass
+
+    # ------------------------------------------------------------------
+    # Show template info (helps user find the WordPress post for editing)
+    # ------------------------------------------------------------------
+
+    def _on_show_template_info(self):
+        template = self._template_var.get()
+        if not template:
+            messagebox.showwarning("No template", "Select a template first.", parent=self)
+            return
+        self._status_var.set(f"Looking up template '{template}'…")
+        threading.Thread(
+            target=self._run_show_template_info, args=(template,), daemon=True,
+        ).start()
+
+    def _run_show_template_info(self, template):
+        result = self.action.find_template(template, env=self.env)
+        self.after(0, self._finish_show_template_info, template, result)
+
+    def _finish_show_template_info(self, template, result):
+        self._status_var.set("Ready.")
+        if not result.success:
+            messagebox.showerror("Template not found", result.message, parent=self)
+            return
+        d = result.data or {}
+        kind = "Page" if d.get('post_type') == 'pages' else "Post"
+        msg = (
+            f"Slug:    {template}\n"
+            f"Title:   {d.get('title', '(no title)')}\n"
+            f"Type:    {kind}\n"
+            f"Status:  {d.get('status', '')}\n"
+            f"ID:      {d.get('id', 0)}\n\n"
+            f"Public URL:\n{d.get('link', '')}\n\n"
+            f"Edit in WordPress admin:\n{d.get('edit_link', '')}"
+        )
+        messagebox.showinfo(f"Template: {template}", msg, parent=self)
 
     # ------------------------------------------------------------------
     # Defaults / persistence

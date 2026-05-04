@@ -101,6 +101,46 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Delete failed: {e}")
 
+    def find_template(self, template: str, env: str = 'staging') -> ActionResult:
+        """Look up the template post/page on the site and return its identifying
+        info so the user can find and edit it (e.g. to rename its slug).
+
+        Tries posts then pages, with and without lang=en, mirroring run().
+        On success, data is a dict with: title, link (public URL), edit_link
+        (admin edit URL), post_type ('posts' or 'pages'), id.
+        """
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        for post_type in ('posts', 'pages'):
+            for lang_param in (None, 'en'):
+                params = {'slug': template, 'context': 'edit', 'status': 'any'}
+                if lang_param:
+                    params['lang'] = lang_param
+                try:
+                    resp = requests.get(
+                        f"{base}/wp-json/wp/v2/{post_type}",
+                        params=params, auth=auth, timeout=30,
+                    )
+                    if resp.status_code == 401:
+                        return ActionResult(False, "401 Unauthorized — check credentials.")
+                    resp.raise_for_status()
+                    posts = resp.json()
+                    if posts:
+                        p = posts[0]
+                        title = (p.get('title', {}) or {}).get('rendered', '') \
+                                or (p.get('title', {}) or {}).get('raw', '')
+                        return ActionResult(True, "Template found.", data={
+                            'id':        p.get('id', 0),
+                            'title':     title,
+                            'link':      p.get('link', ''),
+                            'edit_link': f"{base}/wp-admin/post.php?post={p.get('id', 0)}&action=edit",
+                            'post_type': post_type,
+                            'status':    p.get('status', ''),
+                        })
+                except Exception as e:
+                    return ActionResult(False, f"Lookup failed: {e}")
+        return ActionResult(False, f"Template '{template}' not found on the site.")
+
     def get_post_media_id(self, post_id: int, env: str = 'staging') -> int:
         """Return the first image block's media ID from a post's raw content, or 0 if not found."""
         base = get_cred('wp_url', env).rstrip('/')
