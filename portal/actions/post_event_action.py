@@ -47,19 +47,6 @@ TEMPLATES = {
         # display a single shareable image.
         'image_link': True,
     },
-    # ── TEMPORARY ─────────────────────────────────────────────────────────
-    # Lets the user click "Show template info" against the legacy slug so
-    # they can find and rename the WordPress page (slug:
-    # 'event-template-2' → 'event-with-clickable-image').
-    # Remove this entry once the WordPress slug has been renamed.
-    'event-template-2': {
-        'label':  '(legacy) Event Template 2 — for slug lookup only',
-        'fields': ['image', 'caption'],
-        'placeholders': {
-            'title_content': 'Event Template 2 (Header, Description, Image link)',
-        },
-        'image_link': True,
-    },
 }
 
 
