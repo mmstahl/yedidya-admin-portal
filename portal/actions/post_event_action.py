@@ -28,16 +28,16 @@ from portal.credentials.credential_manager import get as get_cred
 #                  string in the template post content
 # ---------------------------------------------------------------------------
 TEMPLATES = {
-    'event-template-1': {
-        'label':  'Event Template 1',
+    'event-with-static-image': {
+        'label':  'Event with Static Image',
         'fields': ['date', 'description', 'image'],
         'placeholders': {
             'date':        'Hebrew-and-Gregorian-dates',
             'description': 'Description-of-this-event',
         },
     },
-    'event-template-2': {
-        'label':  'Event Template 2',
+    'event-with-clickable-image': {
+        'label':  'Event with Clickable Image',
         'fields': ['image', 'caption'],
         'placeholders': {
             'title_content': 'Event Template 2 (Header, Description, Image link)',
