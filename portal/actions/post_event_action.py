@@ -134,12 +134,22 @@ class PostEventAction(BaseAction):
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
             caption: str = '', lang: str = '', env: str = 'staging',
-            media_id: int = 0, media_url: str = '') -> ActionResult:
+            is_new_image: bool = False) -> ActionResult:
+        """Create or update one post in one language. Fully self-contained:
+        every call is treated as an independent entity — no cross-language
+        state, no shared image uploads, no shared create/update flags.
+
+        Image resolution rules (per this single post):
+          - image_path provided AND (is_new_image OR no existing post)
+              → upload image_path  (user picked it, OR creating from a loaded default)
+          - else, existing post found
+              → reuse media already embedded in the existing post (Option C)
+          - else
+              → return error: a new post needs an image
+        """
 
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
-
-        new_id = new_url = None  # set during image step; returned in result for caller reuse
 
         tpl_config   = TEMPLATES.get(template, {})
         placeholders = tpl_config.get('placeholders', {})
@@ -208,12 +218,18 @@ class PostEventAction(BaseAction):
             return find_result
         existing_id = find_result.data
 
-        # ── 5. Resolve or upload image ─────────────────────────────────────
+        # ── 5. Resolve or upload image (per this post — fully independent) ────
         if 'image' in tpl_config.get('fields', []):
             new_id = new_url = None
 
-            if image_path:
-                # User explicitly selected a new image — upload it
+            # Decide what to do with the image, based on the state of THIS post only:
+            #   - Upload the local file if the user picked a new one this session,
+            #     OR if there is no existing post to reuse from.
+            #   - Otherwise reuse the image already embedded in the existing post.
+            #   - If neither applies (new post, no image at all) — error out.
+            should_upload = bool(image_path) and (is_new_image or not existing_id)
+
+            if should_upload:
                 filename = os.path.basename(image_path)
                 ext      = os.path.splitext(filename)[1].lower()
                 mime_map = {
@@ -242,13 +258,8 @@ class PostEventAction(BaseAction):
                 except Exception as e:
                     return ActionResult(False, f"Failed to upload image: {e}")
 
-            elif media_id:
-                # Caller already uploaded the image (e.g. Hebrew post) — reuse that media item
-                new_id  = media_id
-                new_url = media_url
-
             elif existing_id:
-                # No new image — reuse the image already embedded in the existing post
+                # No new image; reuse the one already embedded in the existing post (Option C).
                 try:
                     post_resp = requests.get(
                         f"{base}/wp-json/wp/v2/posts/{existing_id}",
@@ -259,9 +270,9 @@ class PostEventAction(BaseAction):
                     existing_content = post_resp.json().get('content', {}).get('raw', '')
                     m = re.search(r'<!-- wp:image \{"id":(\d+)', existing_content)
                     if m:
-                        media_id   = int(m.group(1))
+                        existing_media_id = int(m.group(1))
                         media_resp = requests.get(
-                            f"{base}/wp-json/wp/v2/media/{media_id}",
+                            f"{base}/wp-json/wp/v2/media/{existing_media_id}",
                             auth=auth, timeout=30,
                         )
                         if media_resp.status_code == 200:
@@ -269,9 +280,20 @@ class PostEventAction(BaseAction):
                             new_id  = media_data['id']
                             new_url = media_data['source_url']
                 except Exception:
-                    pass  # non-fatal — template image block will remain as-is
+                    pass  # fall through to the error below
                 if new_id is None:
-                    warnings.append("Could not retrieve existing image; template image placeholder used.")
+                    return ActionResult(
+                        False,
+                        f"Could not retrieve the existing image from post {existing_id}. "
+                        f"Please select an image and try again.",
+                    )
+
+            else:
+                # New post with no image at all
+                return ActionResult(
+                    False,
+                    "An image is required for a new post. Please select or paste an image.",
+                )
 
             if new_id:
                 # ── Replace first image block ──────────────────────────
@@ -329,8 +351,4 @@ class PostEventAction(BaseAction):
         msg = f"Post {verb}. ID: {saved_post['id']}"
         if warnings:
             msg += "\nWarnings: " + "; ".join(warnings)
-        return ActionResult(True, msg, data={
-            'link':      saved_post.get('link', ''),
-            'media_id':  new_id  or 0,
-            'media_url': new_url or '',
-        })
+        return ActionResult(True, msg, data=saved_post.get('link', ''))

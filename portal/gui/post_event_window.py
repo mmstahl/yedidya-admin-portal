@@ -459,6 +459,48 @@ class PostEventWindow(tk.Toplevel):
     # Create / Update post
     # ------------------------------------------------------------------
 
+    def _collect_lang(self, lang, fields):
+        """Gather user input for ONE language tab.  Validates only when this
+        language has a non-empty title (i.e. the user wants this post saved).
+
+        Returns (data_dict, error_message_or_None).  The data_dict is always
+        shape-complete so it can be passed straight into action.run() and into
+        _save_defaults regardless of validation outcome.
+        """
+        title_var   = self._title_he_var   if lang == 'he' else self._title_en_var
+        date_var    = self._date_he_var    if lang == 'he' else self._date_en_var
+        desc_widget = self._desc_he_text   if lang == 'he' else self._desc_en_text
+        cap_widget  = self._caption_he_text if lang == 'he' else self._caption_en_text
+        label       = "Hebrew" if lang == 'he' else "English"
+
+        title = title_var.get().strip()
+        date  = date_var.get().strip() if 'date' in fields else ''
+        desc  = desc_widget.get("1.0", tk.END).strip() if 'description' in fields else ''
+        cap   = cap_widget.get("1.0", tk.END).strip() if 'caption' in fields else ''
+        # Always pass the loaded image_path; run() decides whether to upload
+        # (using is_new_image as the hint) or to reuse the existing post's image.
+        image_path = self._image_path[lang] if 'image' in fields else None
+
+        data = {
+            'title':        title,
+            'date':         date,
+            'description':  desc,
+            'image_path':   image_path or '',
+            'caption':      cap,
+            'categories':   self._get_categories(lang),
+            'is_new_image': self._image_user_set[lang],
+        }
+
+        # Validation only fires when this language is actually being saved.
+        if not title:
+            return data, None
+        if 'date' in fields and not date:
+            return data, f"Enter a date ({label} tab)."
+        if 'description' in fields and not desc:
+            return data, f"Enter a description ({label} tab)."
+
+        return data, None
+
     def _on_create(self):
         template = self._template_var.get()
         if not template:
@@ -467,41 +509,23 @@ class PostEventWindow(tk.Toplevel):
 
         fields = TEMPLATES[template].get('fields', [])
 
-        title_he = self._title_he_var.get().strip()
-        if not title_he:
+        # Collect both languages through the same helper.  Each language is an
+        # independent unit — no cross-language fallbacks.
+        lang_data = {}
+        for lang in ('he', 'en'):
+            data, err = self._collect_lang(lang, fields)
+            if err:
+                messagebox.showwarning("Invalid input", err, parent=self)
+                return
+            lang_data[lang] = data
+
+        # Hebrew is the primary language: a Hebrew title is always required.
+        if not lang_data['he']['title']:
             messagebox.showwarning("Missing title", "Enter a Hebrew title.", parent=self)
             return
 
-        date_he = self._date_he_var.get().strip() if 'date' in fields else ''
-        if 'date' in fields and not date_he:
-            messagebox.showwarning("Missing date", "Enter a date (Hebrew tab).", parent=self)
-            return
-
-        desc_he = self._desc_he_text.get("1.0", tk.END).strip() if 'description' in fields else ''
-        if 'description' in fields and not desc_he:
-            messagebox.showwarning("Missing description", "Enter a description (Hebrew tab).", parent=self)
-            return
-
-        is_update = self._create_btn.cget('text') == 'Update Post'
-
-        # For updates, only pass image_path if user explicitly picked one this session.
-        # For creates, use whatever is loaded (from defaults or freshly picked).
-        if 'image' in fields:
-            if is_update:
-                img_he = self._image_path['he'] if self._image_user_set['he'] else ''
-            else:
-                img_he = self._image_path['he'] or ''
-                if not img_he:
-                    messagebox.showwarning("Missing image", "Select or paste an image (Hebrew tab).", parent=self)
-                    return
-        else:
-            img_he = ''
-
-        cap_he = self._caption_he_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
-
-        title_en = self._title_en_var.get().strip()
-
-        if title_en and title_he == title_en:
+        # English is optional; if its title is set it must differ from Hebrew.
+        if lang_data['en']['title'] and lang_data['he']['title'] == lang_data['en']['title']:
             messagebox.showerror(
                 "Duplicate title",
                 "The Hebrew and English titles are identical.\n\n"
@@ -510,32 +534,6 @@ class PostEventWindow(tk.Toplevel):
             )
             return
 
-        date_en  = self._date_en_var.get().strip() if 'date' in fields else ''
-        desc_en  = self._desc_en_text.get("1.0", tk.END).strip() if 'description' in fields else ''
-        # English image resolution:
-        #   - User explicitly picked an English image → use it.
-        #   - Update with no new pick → pass '' so run() extracts from the existing post (Option C).
-        #   - Create with no explicit pick → fall back to the Hebrew image so the English post
-        #     isn't left with the template placeholder. Each language uploads independently.
-        if 'image' in fields:
-            if self._image_user_set['en']:
-                img_en = self._image_path['en'] or ''
-            elif is_update:
-                img_en = ''          # Option C: run() will extract from existing English post
-            else:
-                img_en = img_he      # Create: reuse Hebrew path (uploaded separately for English)
-        else:
-            img_en = ''
-        cap_en   = self._caption_en_text.get("1.0", tk.END).strip() if 'caption' in fields else ''
-
-        lang_data = {
-            'he': {'title': title_he, 'date': date_he, 'description': desc_he,
-                   'image_path': img_he, 'caption': cap_he,
-                   'categories': self._get_categories('he')},
-            'en': {'title': title_en, 'date': date_en, 'description': desc_en,
-                   'image_path': img_en, 'caption': cap_en,
-                   'categories': self._get_categories('en')},
-        }
         self._save_defaults(template, lang_data)
         self._create_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
@@ -571,6 +569,8 @@ class PostEventWindow(tk.Toplevel):
         ).start()
 
     def _run_create(self, template, lang_data):
+        """Process each language as an independent post.  Same code path,
+        same parameters, just called twice with different lang values."""
         results = {}
         for lang in ('he', 'en'):
             d = lang_data[lang]
@@ -584,6 +584,7 @@ class PostEventWindow(tk.Toplevel):
                 date=d['date'],
                 description=d['description'],
                 image_path=d['image_path'],
+                is_new_image=d['is_new_image'],
                 caption=d['caption'],
                 lang=lang,
                 env=self.env,
@@ -599,9 +600,8 @@ class PostEventWindow(tk.Toplevel):
                 continue
             if result.success:
                 self._log_write(f"[{label}] Done. {result.message}\n")
-                link = (result.data.get('link', '') if isinstance(result.data, dict) else result.data) or ''
-                if link:
-                    self._log_write(f"[{label}] URL: {link}\n")
+                if result.data:
+                    self._log_write(f"[{label}] URL: {result.data}\n")
             else:
                 overall_ok = False
                 self._log_write(f"[{label}] Error: {result.message}\n")
