@@ -175,6 +175,70 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Image delete failed: {e}")
 
+    def duplicate_to_lang(self, source_post_id: int, target_lang: str,
+                          env: str = 'staging') -> ActionResult:
+        """Create a translation copy of an existing post in another language.
+
+        Fetches the source post's title, raw content (Gutenberg blocks
+        included — image blocks reuse the same media item), categories and
+        status, then creates a new post in target_lang. The new post is
+        linked to the source as a WPML translation via icl_translation_of
+        so the two appear as language siblings on the site.
+
+        Returns ActionResult with data={'link', 'id'} on success.
+        """
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+
+        # Fetch the source post (raw content + metadata)
+        try:
+            resp = requests.get(
+                f"{base}/wp-json/wp/v2/posts/{source_post_id}",
+                params={'context': 'edit'},
+                auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            source = resp.json()
+        except Exception as e:
+            return ActionResult(False, f"Failed to fetch source post {source_post_id}: {e}")
+
+        title = (source.get('title', {}) or {}).get('raw', '')
+        content = (source.get('content', {}) or {}).get('raw', '')
+        if not title or not content:
+            return ActionResult(False, "Source post has no title or content to duplicate.")
+
+        body = {
+            'title':              title,
+            'content':            content,
+            'status':             source.get('status', 'publish'),
+            'categories':         source.get('categories', []),
+            'lang':               target_lang,
+            # WPML linking — see brain/decisions.md (Option B). The exact field
+            # name may vary by WPML version; if duplication succeeds but the
+            # posts aren't linked as translations on the site, this is the
+            # parameter to revisit.
+            'icl_translation_of': source_post_id,
+        }
+
+        try:
+            resp = requests.post(
+                f"{base}/wp-json/wp/v2/posts",
+                json=body, auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            new_post = resp.json()
+        except Exception as e:
+            return ActionResult(False, f"Failed to create duplicate: {e}")
+
+        return ActionResult(True, f"Duplicate created. ID: {new_post.get('id', 0)}", data={
+            'link': new_post.get('link', ''),
+            'id':   new_post.get('id', 0),
+        })
+
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
             caption: str = '', lang: str = '', env: str = 'staging',
@@ -416,4 +480,8 @@ class PostEventAction(BaseAction):
         msg = f"Post {verb}. ID: {saved_post['id']}"
         if warnings:
             msg += "\nWarnings: " + "; ".join(warnings)
-        return ActionResult(True, msg, data=saved_post.get('link', ''))
+        return ActionResult(True, msg, data={
+            'link':    saved_post.get('link', ''),
+            'id':      saved_post.get('id', 0),
+            'created': not bool(existing_id),  # True when this call inserted a new post
+        })

@@ -105,13 +105,18 @@ class PostEventWindow(tk.Toplevel):
         self._notebook = ttk.Notebook(details)
         self._notebook.grid(row=1, column=0, sticky="ew")
 
-        he_tab = ttk.Frame(self._notebook, padding=4)
-        en_tab = ttk.Frame(self._notebook, padding=4)
-        self._notebook.add(he_tab, text="Hebrew (עברית)")
-        self._notebook.add(en_tab, text="English")
+        self._he_tab = ttk.Frame(self._notebook, padding=4)
+        self._en_tab = ttk.Frame(self._notebook, padding=4)
+        self._notebook.add(self._he_tab, text="Hebrew (עברית)")
+        self._notebook.add(self._en_tab, text="English")
 
-        self._build_lang_tab(he_tab, 'he')
-        self._build_lang_tab(en_tab, 'en')
+        self._build_lang_tab(self._he_tab, 'he')
+        self._build_lang_tab(self._en_tab, 'en')
+
+        # Initially disable English tab. It becomes active automatically once
+        # the Hebrew post exists (either loaded as an existing post via the
+        # title-check, or newly created via the Create-Post-and-duplicate flow).
+        self._notebook.tab(self._en_tab, state='disabled')
 
         # ── Log ────────────────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -334,6 +339,10 @@ class PostEventWindow(tk.Toplevel):
     def _update_create_btn_label(self, exists):
         try:
             self._create_btn.configure(text="Update Post" if exists else "Create Post")
+            # English tab is only active in update mode (Hebrew post exists).
+            # In create mode, English is disabled — it gets auto-populated and
+            # enabled after the create-and-duplicate flow finishes.
+            self._notebook.tab(self._en_tab, state='normal' if exists else 'disabled')
         except tk.TclError:
             pass
 
@@ -542,30 +551,55 @@ class PostEventWindow(tk.Toplevel):
         return data, None
 
     def _on_create(self):
+        """Save post handler.  Two distinct flows:
+
+        - CREATE mode (button text == "Create Post"): only Hebrew is filled
+          in (English tab is disabled).  We create the Hebrew post, then ask
+          WPML to duplicate it into English, then populate the English tab
+          with Hebrew's values for the user to edit.
+        - UPDATE mode (button text == "Update Post"): both posts already
+          exist.  Each language tab is processed independently using the
+          same code path as before.
+        """
         template = self._template_var.get()
         if not template:
             messagebox.showwarning("No template", "Select a template.", parent=self)
             return
 
         fields = TEMPLATES[template].get('fields', [])
+        is_create_mode = (self._create_btn.cget('text') == 'Create Post')
 
-        # Collect both languages through the same helper.  Each language is an
-        # independent unit — no cross-language fallbacks.
-        lang_data = {}
-        for lang in ('he', 'en'):
-            data, err = self._collect_lang(lang, fields)
-            if err:
-                messagebox.showwarning("Invalid input", err, parent=self)
-                return
-            lang_data[lang] = data
-
-        # Hebrew is the primary language: a Hebrew title is always required.
-        if not lang_data['he']['title']:
+        # Hebrew is always collected and validated.
+        he_data, err = self._collect_lang('he', fields)
+        if err:
+            messagebox.showwarning("Invalid input", err, parent=self)
+            return
+        if not he_data['title']:
             messagebox.showwarning("Missing title", "Enter a Hebrew title.", parent=self)
             return
 
-        # English is optional; if its title is set it must differ from Hebrew.
-        if lang_data['en']['title'] and lang_data['he']['title'] == lang_data['en']['title']:
+        if is_create_mode:
+            # English isn't editable yet — it's about to be auto-created via WPML.
+            self._save_defaults(template, {'he': he_data, 'en': self._collect_lang('en', fields)[0]})
+            self._create_btn.configure(state="disabled")
+            self._delete_btn.configure(state="disabled")
+            self._log_clear()
+            self._status_var.set("Creating Hebrew post…")
+            self._log_post_intro(template, {'he': he_data})
+            threading.Thread(
+                target=self._run_create_with_duplicate,
+                args=(template, he_data),
+                daemon=True,
+            ).start()
+            return
+
+        # ── UPDATE mode: both languages active and edited independently ──
+        en_data, err = self._collect_lang('en', fields)
+        if err:
+            messagebox.showwarning("Invalid input", err, parent=self)
+            return
+
+        if en_data['title'] and he_data['title'] == en_data['title']:
             messagebox.showerror(
                 "Duplicate title",
                 "The Hebrew and English titles are identical.\n\n"
@@ -574,16 +608,26 @@ class PostEventWindow(tk.Toplevel):
             )
             return
 
+        lang_data = {'he': he_data, 'en': en_data}
         self._save_defaults(template, lang_data)
         self._create_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
         self._log_clear()
-        self._status_var.set("Saving post…")
+        self._status_var.set("Updating posts…")
+        self._log_post_intro(template, lang_data)
 
+        threading.Thread(
+            target=self._run_create,
+            args=(template, lang_data),
+            daemon=True,
+        ).start()
+
+    def _log_post_intro(self, template, lang_data):
+        """Write the per-language summary lines into the log before kicking off the API calls."""
         self._log_write(f"Template: {template}\n")
         for lang, label in (('he', 'Hebrew'), ('en', 'English')):
-            d = lang_data[lang]
-            if not d['title']:
+            d = lang_data.get(lang)
+            if not d or not d['title']:
                 continue
             self._log_write(f"\n[{label}]\n")
             self._log_write(f"  Title: {d['title']}\n")
@@ -601,12 +645,6 @@ class PostEventWindow(tk.Toplevel):
             if d['categories']:
                 self._log_write(f"  Categories: {', '.join(d['categories'])}\n")
         self._log_write("\n")
-
-        threading.Thread(
-            target=self._run_create,
-            args=(template, lang_data),
-            daemon=True,
-        ).start()
 
     def _run_create(self, template, lang_data):
         """Process each language as an independent post.  Same code path,
@@ -631,6 +669,112 @@ class PostEventWindow(tk.Toplevel):
             )
         self.after(0, self._finish_create, results)
 
+    @staticmethod
+    def _link_from_result(result):
+        """Pull the public URL out of a run() / duplicate_to_lang() result."""
+        if result and result.success and isinstance(result.data, dict):
+            return result.data.get('link', '') or ''
+        return result.data if (result and result.success and isinstance(result.data, str)) else ''
+
+    def _run_create_with_duplicate(self, template, he_data):
+        """CREATE-mode flow: create the Hebrew post, then ask WPML to duplicate
+        it to English.  Runs in a background thread."""
+        he_result = self.action.run(
+            template=template,
+            title=he_data['title'],
+            categories=he_data['categories'],
+            date=he_data['date'],
+            description=he_data['description'],
+            image_path=he_data['image_path'],
+            is_new_image=he_data['is_new_image'],
+            caption=he_data['caption'],
+            lang='he',
+            env=self.env,
+        )
+
+        en_result = None
+        if he_result.success and isinstance(he_result.data, dict):
+            he_id      = he_result.data.get('id', 0)
+            he_created = he_result.data.get('created', False)
+            # Only duplicate if Hebrew was actually a new insert.  If the
+            # button was stale and we ended up updating an existing post,
+            # don't risk creating a second English translation.
+            if he_id and he_created:
+                en_result = self.action.duplicate_to_lang(he_id, 'en', env=self.env)
+
+        self.after(0, self._finish_create_with_duplicate, template, he_data, he_result, en_result)
+
+    def _finish_create_with_duplicate(self, template, he_data, he_result, en_result):
+        # ── Hebrew result ──
+        if he_result.success:
+            self._log_write(f"[Hebrew] Done. {he_result.message}\n")
+            link = self._link_from_result(he_result)
+            if link:
+                self._log_write(f"[Hebrew] URL: {link}\n")
+        else:
+            self._log_write(f"[Hebrew] Error: {he_result.message}\n")
+            if "401" in he_result.message:
+                from portal.gui.credentials_dialog import CredentialsDialog
+                CredentialsDialog(self, on_save=lambda: self._status_var.set(
+                    "Credentials updated. Try again."))
+            self._status_var.set("Hebrew create failed — see log.")
+            self._create_btn.configure(state="normal")
+            self._delete_btn.configure(state="normal")
+            return
+
+        # ── English duplicate result ──
+        if en_result is None:
+            self._log_write("[English] Skipped (Hebrew was updated, not created — duplicate suppressed).\n")
+            self._status_var.set("Hebrew updated. English not duplicated.")
+        elif en_result.success:
+            self._log_write(f"[English] Duplicate created. {en_result.message}\n")
+            link = self._link_from_result(en_result)
+            if link:
+                self._log_write(f"[English] URL: {link}\n")
+            # Populate the English tab with Hebrew's values so the user can edit.
+            self._populate_english_from_hebrew(he_data)
+            # English now exists — enable the tab and switch to update mode.
+            self._notebook.tab(self._en_tab, state='normal')
+            self._create_btn.configure(text="Update Post")
+            # Persist the now-populated English fields into defaults.
+            en_data_now, _ = self._collect_lang('en', TEMPLATES[template].get('fields', []))
+            self._save_defaults(template, {'he': he_data, 'en': en_data_now})
+            self._status_var.set("Post created. English duplicated and populated.")
+        else:
+            self._log_write(f"[English] Duplicate failed: {en_result.message}\n")
+            self._status_var.set("Hebrew created but English duplication failed — see log.")
+
+        # Image was just saved to WordPress. Clear the per-session flags so the
+        # next update doesn't re-upload — Option C will reuse the post's image.
+        self._image_user_set = {'he': False, 'en': False}
+        self._create_btn.configure(state="normal")
+        self._delete_btn.configure(state="normal")
+
+    def _populate_english_from_hebrew(self, he_data):
+        """Copy each Hebrew field's value into the corresponding English widget.
+        Called once, right after the WPML duplicate is created."""
+        self._title_en_var.set(he_data['title'])
+        self._date_en_var.set(he_data['date'])
+
+        self._desc_en_text.delete('1.0', tk.END)
+        if he_data['description']:
+            self._desc_en_text.insert('1.0', he_data['description'])
+
+        self._caption_en_text.delete('1.0', tk.END)
+        if he_data['caption']:
+            self._caption_en_text.insert('1.0', he_data['caption'])
+
+        # Mirror the Hebrew image into the English tab's preview.  The English
+        # WordPress post already references the same media item (the duplicate
+        # carried Hebrew's content verbatim), so leave _image_user_set['en']
+        # at False — Option C will reuse that media on the next update.
+        he_path = self._image_path['he']
+        if he_path and os.path.exists(he_path):
+            self._set_image(he_path, is_temp=self._image_temp['he'], lang='en')
+
+        # Mirror Hebrew's category checkboxes.
+        self._set_categories('en', self._get_categories('he'))
+
     def _finish_create(self, results):
         overall_ok = True
         for lang, label in (('he', 'Hebrew'), ('en', 'English')):
@@ -640,8 +784,9 @@ class PostEventWindow(tk.Toplevel):
                 continue
             if result.success:
                 self._log_write(f"[{label}] Done. {result.message}\n")
-                if result.data:
-                    self._log_write(f"[{label}] URL: {result.data}\n")
+                link = self._link_from_result(result)
+                if link:
+                    self._log_write(f"[{label}] URL: {link}\n")
             else:
                 overall_ok = False
                 self._log_write(f"[{label}] Error: {result.message}\n")
