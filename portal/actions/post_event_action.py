@@ -209,6 +209,8 @@ class PostEventAction(BaseAction):
                 )
             resp.raise_for_status()
             data = resp.json()
+            if isinstance(data, list):
+                data = data[0] if data else {}
         except Exception as e:
             return ActionResult(False, f"Failed to duplicate post: {e}")
 
@@ -468,6 +470,12 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, "401 Unauthorized — check credentials.")
             post_resp.raise_for_status()
             saved_post = post_resp.json()
+            # WPML quirk: some versions wrap the created post in a list
+            # instead of returning a bare object.  Unwrap it.
+            if isinstance(saved_post, list):
+                if not saved_post:
+                    return ActionResult(False, "Post save returned an empty response.")
+                saved_post = saved_post[0]
         except Exception as e:
             return ActionResult(False, f"Failed to save post: {e}")
 
