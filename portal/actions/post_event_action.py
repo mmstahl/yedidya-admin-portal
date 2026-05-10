@@ -222,7 +222,7 @@ class PostEventAction(BaseAction):
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
             caption: str = '', lang: str = '', env: str = 'staging',
-            is_new_image: bool = False) -> ActionResult:
+            is_new_image: bool = False, progress_cb=None) -> ActionResult:
         """Create or update one post in one language. Fully self-contained:
         every call is treated as an independent entity — no cross-language
         state, no shared image uploads, no shared create/update flags.
@@ -242,9 +242,14 @@ class PostEventAction(BaseAction):
         tpl_config   = TEMPLATES.get(template, {})
         placeholders = tpl_config.get('placeholders', {})
 
+        def _progress(msg):
+            if progress_cb:
+                progress_cb(msg)
+
         # ── 1. Fetch template (posts then pages; each tried with and without lang=en) ──
         # NOTE: use a distinct loop variable (_lang_try) so the function-level
         # `lang` parameter is not accidentally overwritten.
+        _progress("Fetching template…")
         posts = []
         for post_type in ('posts', 'pages'):
             for _lang_try in (None, 'en'):
@@ -283,6 +288,7 @@ class PostEventAction(BaseAction):
             content = content.replace(placeholders['description'], description)
 
         # ── 3. Resolve category names → IDs ───────────────────────────────
+        _progress("Resolving categories…")
         cat_ids  = []
         warnings = []
         if categories:
@@ -303,6 +309,7 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, f"Failed to fetch categories: {e}")
 
         # ── 4. Find existing post (needed before image step) ──────────────
+        _progress("Checking for existing post…")
         find_result = self.find_post(title, env, lang=lang)
         if not find_result.success:
             return find_result
@@ -320,6 +327,7 @@ class PostEventAction(BaseAction):
             should_upload = bool(image_path) and (is_new_image or not existing_id)
 
             if should_upload:
+                _progress("Uploading image…")
                 filename = os.path.basename(image_path)
                 ext      = os.path.splitext(filename)[1].lower()
                 mime_map = {
@@ -428,6 +436,7 @@ class PostEventAction(BaseAction):
                     return ActionResult(False, "No image block found in the template content.")
 
         # ── 6. Create or update published post ────────────────────────────
+        _progress("Saving post…")
 
         post_body = {
             'title':      title,

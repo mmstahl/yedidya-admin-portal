@@ -20,6 +20,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 import defaults_manager as dm
+from portal.actions.base_action import ActionResult
 from portal.actions.post_event_action import PostEventAction, TEMPLATES
 
 try:
@@ -648,25 +649,44 @@ class PostEventWindow(tk.Toplevel):
 
     def _run_create(self, template, lang_data):
         """Process each language as an independent post.  Same code path,
-        same parameters, just called twice with different lang values."""
+        same parameters, just called twice with different lang values.
+
+        Wrapped in try/except so any unexpected exception still calls
+        _finish_create and re-enables the UI buttons.
+        """
+        lang_labels = {'he': 'Hebrew', 'en': 'English'}
         results = {}
-        for lang in ('he', 'en'):
-            d = lang_data[lang]
-            if not d['title']:
-                results[lang] = None
-                continue
-            results[lang] = self.action.run(
-                template=template,
-                title=d['title'],
-                categories=d['categories'],
-                date=d['date'],
-                description=d['description'],
-                image_path=d['image_path'],
-                is_new_image=d['is_new_image'],
-                caption=d['caption'],
-                lang=lang,
-                env=self.env,
-            )
+        try:
+            for lang in ('he', 'en'):
+                d = lang_data[lang]
+                if not d['title']:
+                    results[lang] = None
+                    continue
+                self.after(0, self._status_var.set,
+                           f"Updating {lang_labels[lang]} post…")
+                results[lang] = self.action.run(
+                    template=template,
+                    title=d['title'],
+                    categories=d['categories'],
+                    date=d['date'],
+                    description=d['description'],
+                    image_path=d['image_path'],
+                    is_new_image=d['is_new_image'],
+                    caption=d['caption'],
+                    lang=lang,
+                    env=self.env,
+                    progress_cb=lambda msg, l=lang: self.after(
+                        0, self._status_var.set, f"[{lang_labels[l]}] {msg}"
+                    ),
+                )
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            for lang in ('he', 'en'):
+                if lang not in results:
+                    results[lang] = ActionResult(
+                        False, f"Unexpected error: {exc}\n\nTraceback:\n{tb}"
+                    )
         self.after(0, self._finish_create, results)
 
     @staticmethod
@@ -678,29 +698,49 @@ class PostEventWindow(tk.Toplevel):
 
     def _run_create_with_duplicate(self, template, he_data):
         """CREATE-mode flow: create the Hebrew post, then ask WPML to duplicate
-        it to English.  Runs in a background thread."""
-        he_result = self.action.run(
-            template=template,
-            title=he_data['title'],
-            categories=he_data['categories'],
-            date=he_data['date'],
-            description=he_data['description'],
-            image_path=he_data['image_path'],
-            is_new_image=he_data['is_new_image'],
-            caption=he_data['caption'],
-            lang='he',
-            env=self.env,
-        )
+        it to English.  Runs in a background thread.
 
+        The entire body is wrapped in try/except so that any unexpected
+        exception still calls _finish_create_with_duplicate — keeping the UI
+        from getting stuck with disabled buttons forever.
+        """
+        def _progress(msg):
+            """Thread-safe status update — schedules on the main thread."""
+            self.after(0, self._status_var.set, msg)
+
+        he_result = None
         en_result = None
-        if he_result.success and isinstance(he_result.data, dict):
-            he_id      = he_result.data.get('id', 0)
-            he_created = he_result.data.get('created', False)
-            # Only duplicate if Hebrew was actually a new insert.  If the
-            # button was stale and we ended up updating an existing post,
-            # don't risk creating a second English translation.
-            if he_id and he_created:
-                en_result = self.action.duplicate_to_lang(he_id, 'en', env=self.env)
+        try:
+            he_result = self.action.run(
+                template=template,
+                title=he_data['title'],
+                categories=he_data['categories'],
+                date=he_data['date'],
+                description=he_data['description'],
+                image_path=he_data['image_path'],
+                is_new_image=he_data['is_new_image'],
+                caption=he_data['caption'],
+                lang='he',
+                env=self.env,
+                progress_cb=_progress,
+            )
+
+            if he_result.success and isinstance(he_result.data, dict):
+                he_id      = he_result.data.get('id', 0)
+                he_created = he_result.data.get('created', False)
+                # Only duplicate if Hebrew was actually a new insert.  If the
+                # button was stale and we ended up updating an existing post,
+                # don't risk creating a second English translation.
+                if he_id and he_created:
+                    _progress("Creating English translation…")
+                    en_result = self.action.duplicate_to_lang(he_id, 'en', env=self.env)
+
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            he_result = he_result or ActionResult(
+                False, f"Unexpected error: {exc}\n\nTraceback:\n{tb}"
+            )
 
         self.after(0, self._finish_create_with_duplicate, template, he_data, he_result, en_result)
 
