@@ -44,6 +44,7 @@ add_action( 'rest_api_init', function () {
 // Main handler
 // ---------------------------------------------------------------------------
 
+if ( ! function_exists( 'yedidya_gdpr_erase_handler' ) ) {
 function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
     $email    = $request->get_param( 'email' );
     $warnings = [];
@@ -125,4 +126,5 @@ function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
         'steps'    => $steps,
         'warnings' => $warnings,
     ] );
+}
 }

@@ -31,6 +31,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 add_action( 'rest_api_init', 'yedidya_register_db_extract_route' );
 
+if ( ! function_exists( 'yedidya_register_db_extract_route' ) ) {
 function yedidya_register_db_extract_route() {
     register_rest_route( 'yedidya/v1', '/db-extract', array(
         'methods'             => 'GET',
@@ -55,7 +56,9 @@ function yedidya_register_db_extract_route() {
         ),
     ) );
 }
+}
 
+if ( ! function_exists( 'yedidya_db_extract_callback' ) ) {
 function yedidya_db_extract_callback( WP_REST_Request $request ) {
     $users_columns = array(
         'ID', 'user_login', 'user_nicename', 'user_email',
@@ -140,7 +143,9 @@ function yedidya_db_extract_callback( WP_REST_Request $request ) {
 
     return rest_ensure_response( $result );
 }
+}
 
+if ( ! function_exists( 'yedidya_build_extract_row' ) ) {
 function yedidya_build_extract_row( $user, $requested, $col_fields, $wants_role, $is_partner, $partner_field_map ) {
     $row = array( 'record_type' => $is_partner ? 'partner' : 'user' );
 
@@ -162,4 +167,5 @@ function yedidya_build_extract_row( $user, $requested, $col_fields, $wants_role,
     }
 
     return $row;
+}
 }

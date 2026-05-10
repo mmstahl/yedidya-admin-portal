@@ -16,6 +16,10 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+// ---------------------------------------------------------------------------
+// Register REST route
+// ---------------------------------------------------------------------------
+
 add_action( 'rest_api_init', function () {
     register_rest_route( 'yedidya/v1', '/gdpr-erase', [
         'methods'             => 'POST',
@@ -36,6 +40,11 @@ add_action( 'rest_api_init', function () {
     ] );
 } );
 
+// ---------------------------------------------------------------------------
+// Main handler
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'yedidya_gdpr_erase_handler' ) ) {
 function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
     $email    = $request->get_param( 'email' );
     $warnings = [];
@@ -80,6 +89,8 @@ function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
     }
 
     // ── 3. Run all registered WordPress privacy erasers ────────────────────
+    //    This catches any other plugins that store personal data
+    //    (e.g. form plugins, newsletter plugins, etc.)
     $erasers = apply_filters( 'wp_privacy_personal_data_erasers', [] );
     foreach ( $erasers as $eraser_key => $eraser ) {
         if ( ! isset( $eraser['callback'] ) ) {
@@ -97,6 +108,7 @@ function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
     $user = get_user_by( 'email', $email );
     if ( $user ) {
         require_once ABSPATH . 'wp-admin/includes/user.php';
+        // Second arg null = delete all content (no reassign)
         $deleted = wp_delete_user( $user->ID, null );
         if ( $deleted ) {
             $steps[] = "WordPress: user account and all content deleted.";
@@ -104,6 +116,7 @@ function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
             $warnings[] = "WordPress: wp_delete_user() returned false — account may not be fully deleted.";
         }
     } else {
+        // Not an error: account may have been deleted by a standard delete earlier.
         $steps[] = "WordPress: no account found for this email (already deleted, or never existed) — skipped.";
     }
 
@@ -113,4 +126,5 @@ function yedidya_gdpr_erase_handler( WP_REST_Request $request ) {
         'steps'    => $steps,
         'warnings' => $warnings,
     ] );
+}
 }

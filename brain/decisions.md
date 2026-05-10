@@ -42,13 +42,15 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 
 ---
 
-## 2026-04-19 — No function_exists guards in portal PHP files
+## 2026-05-10 — Use function_exists guards in portal PHP files (replaces 2026-04-19 decision)
 
-**Decision:** Do not wrap functions in `function_exists()` guards in `gdpr-erase.php`, `member-export.php`, or other portal sub-files.
+**Decision:** Wrap all named functions in portal PHP sub-files with `function_exists()` guards.
 
-**Why:** Guards silently hide duplicate function conflicts. Without them, a redeclaration causes an immediate PHP fatal, making the conflict obvious and forcing it to be resolved properly.
+**Why:** The original "no guards" policy was reversed after a live site crash caused by the old standalone `yedidya-gdpr-erase` plugin being active at the same time as the portal plugin — both defining the same functions. A PHP fatal takes down every page for every visitor; a guard limits the blast radius to the portal admin only.
 
-**How to handle conflicts:** If a function is already defined by another active plugin, deactivate or delete that standalone plugin rather than adding guards. The portal plugin is the canonical home for this functionality.
+**Risk accepted:** If a duplicate definition exists (e.g. old standalone plugin still active), the first-loaded version wins silently. Given all functions are prefixed `yedidya_`, the only realistic collision is the old standalone plugin — which still works, just may be an older version. That is a far smaller problem than a site-wide crash.
+
+**Still the right thing to do:** Deactivate any standalone plugins that duplicate portal functionality. Guards are a safety net, not a licence to leave conflicts unresolved.
 
 ---
 

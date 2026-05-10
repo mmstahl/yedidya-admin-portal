@@ -24,10 +24,13 @@ add_action( 'rest_api_init', function () {
     ) );
 } );
 
-function yedidya_check_permission() {
-    return current_user_can( 'edit_users' );
+if ( ! function_exists( 'yedidya_check_permission' ) ) {
+    function yedidya_check_permission() {
+        return current_user_can( 'edit_users' );
+    }
 }
 
+if ( ! function_exists( 'yedidya_get_members' ) ) {
 function yedidya_get_members( $request ) {
     $meta_keys = array(
         'havepartner',
@@ -79,4 +82,5 @@ function yedidya_get_members( $request ) {
     }
 
     return rest_ensure_response( $result );
+}
 }
