@@ -61,6 +61,32 @@ class PostEventAction(BaseAction):
     def _auth(self, env):
         return (get_cred('wp_user', env), get_cred('wp_password', env))
 
+    @staticmethod
+    def _post(url, *, params=None, json=None, auth, timeout=30):
+        """POST that re-issues as POST on redirects (not GET).
+
+        requests follows 301/302 by switching to GET, which on the WordPress
+        REST API returns a list of existing posts instead of creating a new
+        one.  This wrapper follows redirects manually, always re-posting to
+        the redirect target so the body is never lost.
+        """
+        resp = requests.post(
+            url, params=params, json=json, auth=auth,
+            timeout=timeout, allow_redirects=False,
+        )
+        # Follow up to 5 redirects; re-POST each time.
+        for _ in range(5):
+            if resp.status_code not in (301, 302, 307, 308):
+                break
+            location = resp.headers.get('Location', '')
+            if not location:
+                break
+            resp = requests.post(
+                location, json=json, auth=auth,
+                timeout=timeout, allow_redirects=False,
+            )
+        return resp
+
     def find_post(self, title: str, env: str = 'staging', lang: str = '') -> ActionResult:
         """Return ActionResult with data=post_id (int) if found, data=None if not."""
         base = get_cred('wp_url', env).rstrip('/')
@@ -191,7 +217,7 @@ class PostEventAction(BaseAction):
         auth = self._auth(env)
 
         try:
-            resp = requests.post(
+            resp = self._post(
                 f"{base}/wp-json/yedidya/v1/duplicate-post",
                 json={
                     'source_post_id': source_post_id,
@@ -210,7 +236,11 @@ class PostEventAction(BaseAction):
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, list):
-                data = data[0] if data else {}
+                return ActionResult(
+                    False,
+                    "Duplicate endpoint returned a list instead of a post object — "
+                    "the translation was not created.",
+                )
         except Exception as e:
             return ActionResult(False, f"Failed to duplicate post: {e}")
 
@@ -340,14 +370,23 @@ class PostEventAction(BaseAction):
                 mime = mime_map.get(ext, 'image/jpeg')
                 try:
                     with open(image_path, 'rb') as f:
-                        media_resp = requests.post(
-                            f"{base}/wp-json/wp/v2/media",
-                            headers={
-                                'Content-Disposition': f'attachment; filename="{filename}"',
-                                'Content-Type': mime,
-                            },
-                            data=f.read(),
-                            auth=auth, timeout=60,
+                        image_data = f.read()
+                    media_resp = requests.post(
+                        f"{base}/wp-json/wp/v2/media",
+                        headers={
+                            'Content-Disposition': f'attachment; filename="{filename}"',
+                            'Content-Type': mime,
+                        },
+                        data=image_data,
+                        auth=auth, timeout=60,
+                        allow_redirects=False,
+                    )
+                    # Media upload must not be silently redirected either.
+                    if media_resp.status_code in (301, 302, 307, 308):
+                        return ActionResult(
+                            False,
+                            f"Image upload was redirected ({media_resp.status_code}). "
+                            f"Check the WordPress URL in credentials.",
                         )
                     if media_resp.status_code == 401:
                         return ActionResult(False, "401 Unauthorized — check credentials.")
@@ -452,14 +491,14 @@ class PostEventAction(BaseAction):
 
         try:
             if existing_id:
-                post_resp = requests.post(
+                post_resp = self._post(
                     f"{base}/wp-json/wp/v2/posts/{existing_id}",
                     params=lang_params,
                     json=post_body, auth=auth, timeout=30,
                 )
                 verb = "updated"
             else:
-                post_resp = requests.post(
+                post_resp = self._post(
                     f"{base}/wp-json/wp/v2/posts",
                     params=lang_params,
                     json=post_body, auth=auth, timeout=30,
@@ -470,12 +509,31 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, "401 Unauthorized — check credentials.")
             post_resp.raise_for_status()
             saved_post = post_resp.json()
-            # WPML quirk: some versions wrap the created post in a list
-            # instead of returning a bare object.  Unwrap it.
+            # A list response means the POST was redirected to a GET (WordPress
+            # URL normalisation — e.g. trailing-slash mismatch).  requests
+            # follows 301/302 by switching to GET, which returns existing posts
+            # instead of creating a new one.  Never accept this silently.
             if isinstance(saved_post, list):
-                if not saved_post:
-                    return ActionResult(False, "Post save returned an empty response.")
-                saved_post = saved_post[0]
+                if post_resp.history:
+                    chain = ' → '.join(
+                        f"{r.status_code} {r.url}" for r in post_resp.history
+                    )
+                    return ActionResult(
+                        False,
+                        f"Post creation failed — the request was redirected and "
+                        f"WordPress returned a list of existing posts instead of "
+                        f"creating a new one.\n\n"
+                        f"Redirect chain: {chain}\n"
+                        f"Final URL: {post_resp.url}\n\n"
+                        f"Fix: make sure the WordPress URL saved in credentials "
+                        f"matches the site's canonical URL exactly "
+                        f"(check trailing slash).",
+                    )
+                return ActionResult(
+                    False,
+                    "Post creation returned an unexpected list response — "
+                    "the post was not created. Check WordPress admin.",
+                )
         except Exception as e:
             return ActionResult(False, f"Failed to save post: {e}")
 
