@@ -214,17 +214,19 @@ class PostEventAction(BaseAction):
             'content':            content,
             'status':             source.get('status', 'publish'),
             'categories':         source.get('categories', []),
-            'lang':               target_lang,
             # WPML linking — see brain/decisions.md (Option B). The exact field
             # name may vary by WPML version; if duplication succeeds but the
             # posts aren't linked as translations on the site, this is the
             # parameter to revisit.
             'icl_translation_of': source_post_id,
         }
+        # WPML reads language from the URL query parameter, not from the
+        # JSON body. Passing lang= in the body is silently ignored.
 
         try:
             resp = requests.post(
                 f"{base}/wp-json/wp/v2/posts",
+                params={'lang': target_lang},
                 json=body, auth=auth, timeout=30,
             )
             if resp.status_code == 401:
@@ -453,19 +455,22 @@ class PostEventAction(BaseAction):
             'status':     'publish',
             'categories': cat_ids,
         }
-        if lang:
-            post_body['lang'] = lang
+        # WPML reads language from the URL query parameter, not from the
+        # JSON body. Passing lang= in the body is silently ignored.
+        lang_params = {'lang': lang} if lang else {}
 
         try:
             if existing_id:
                 post_resp = requests.post(
                     f"{base}/wp-json/wp/v2/posts/{existing_id}",
+                    params=lang_params,
                     json=post_body, auth=auth, timeout=30,
                 )
                 verb = "updated"
             else:
                 post_resp = requests.post(
                     f"{base}/wp-json/wp/v2/posts",
+                    params=lang_params,
                     json=post_body, auth=auth, timeout=30,
                 )
                 verb = "created"
