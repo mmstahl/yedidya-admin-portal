@@ -177,68 +177,46 @@ class PostEventAction(BaseAction):
 
     def duplicate_to_lang(self, source_post_id: int, target_lang: str,
                           env: str = 'staging') -> ActionResult:
-        """Create a translation copy of an existing post in another language.
+        """Create a WPML-linked translation copy of an existing post.
 
-        Fetches the source post's title, raw content (Gutenberg blocks
-        included — image blocks reuse the same media item), categories and
-        status, then creates a new post in target_lang. The new post is
-        linked to the source as a WPML translation via icl_translation_of
-        so the two appear as language siblings on the site.
+        Calls the portal's custom REST endpoint (yedidya/v1/duplicate-post)
+        which uses WPML's PHP API (wpml_set_element_language_details) to
+        create the duplicate and link the two posts as language siblings.
+        This is more reliable than passing icl_translation_of via the
+        standard WP REST API, which WPML ignores on some versions.
 
         Returns ActionResult with data={'link', 'id'} on success.
         """
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
 
-        # Fetch the source post (raw content + metadata)
         try:
-            resp = requests.get(
-                f"{base}/wp-json/wp/v2/posts/{source_post_id}",
-                params={'context': 'edit'},
+            resp = requests.post(
+                f"{base}/wp-json/yedidya/v1/duplicate-post",
+                json={
+                    'source_post_id': source_post_id,
+                    'target_lang':    target_lang,
+                },
                 auth=auth, timeout=30,
             )
             if resp.status_code == 401:
                 return ActionResult(False, "401 Unauthorized — check credentials.")
+            if resp.status_code == 404:
+                return ActionResult(
+                    False,
+                    "Custom endpoint not found (yedidya/v1/duplicate-post).\n"
+                    "Make sure the Yedidya Admin Portal plugin is up to date on the site.",
+                )
             resp.raise_for_status()
-            source = resp.json()
+            data = resp.json()
         except Exception as e:
-            return ActionResult(False, f"Failed to fetch source post {source_post_id}: {e}")
+            return ActionResult(False, f"Failed to duplicate post: {e}")
 
-        title = (source.get('title', {}) or {}).get('raw', '')
-        content = (source.get('content', {}) or {}).get('raw', '')
-        if not title or not content:
-            return ActionResult(False, "Source post has no title or content to duplicate.")
-
-        body = {
-            'title':              title,
-            'content':            content,
-            'status':             source.get('status', 'publish'),
-            'categories':         source.get('categories', []),
-            # WPML linking — see brain/decisions.md (Option B). The exact field
-            # name may vary by WPML version; if duplication succeeds but the
-            # posts aren't linked as translations on the site, this is the
-            # parameter to revisit.
-            'icl_translation_of': source_post_id,
-        }
-        # WPML reads language from the URL query parameter, not from the
-        # JSON body. Passing lang= in the body is silently ignored.
-
-        try:
-            resp = requests.post(
-                f"{base}/wp-json/wp/v2/posts",
-                params={'lang': target_lang},
-                json=body, auth=auth, timeout=30,
-            )
-            if resp.status_code == 401:
-                return ActionResult(False, "401 Unauthorized — check credentials.")
-            resp.raise_for_status()
-            new_post = resp.json()
-        except Exception as e:
-            return ActionResult(False, f"Failed to create duplicate: {e}")
-
-        return ActionResult(True, f"Duplicate created. ID: {new_post.get('id', 0)}", data={
-            'link': new_post.get('link', ''),
-            'id':   new_post.get('id', 0),
+        post_id = data.get('id', 0)
+        link    = data.get('link', '')
+        return ActionResult(True, f"Duplicate created in '{target_lang}'. ID: {post_id}", data={
+            'link': link,
+            'id':   post_id,
         })
 
     def run(self, template: str, title: str, categories: list,
@@ -265,12 +243,14 @@ class PostEventAction(BaseAction):
         placeholders = tpl_config.get('placeholders', {})
 
         # ── 1. Fetch template (posts then pages; each tried with and without lang=en) ──
+        # NOTE: use a distinct loop variable (_lang_try) so the function-level
+        # `lang` parameter is not accidentally overwritten.
         posts = []
         for post_type in ('posts', 'pages'):
-            for lang in (None, 'en'):
+            for _lang_try in (None, 'en'):
                 params = {'slug': template, 'context': 'edit', 'status': 'any'}
-                if lang:
-                    params['lang'] = lang
+                if _lang_try:
+                    params['lang'] = _lang_try
                 try:
                     resp = requests.get(
                         f"{base}/wp-json/wp/v2/{post_type}",
