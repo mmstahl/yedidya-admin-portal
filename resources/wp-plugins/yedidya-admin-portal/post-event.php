@@ -77,48 +77,49 @@ function yedidya_category_pairs_callback( WP_REST_Request $request ) {
         );
     }
 
-    $categories = get_terms( array(
-        'taxonomy'   => 'category',
-        'hide_empty' => false,
-    ) );
-    if ( is_wp_error( $categories ) ) {
-        return $categories;
+    // Direct DB query.  We can't use get_terms() here because WPML hooks
+    // into it and filters by the current language context — for REST API
+    // calls that's the site's default language, so get_terms() only ever
+    // returns Hebrew terms and the English column ends up empty.
+    //
+    // Querying icl_translations directly avoids every WPML filter and
+    // returns all language versions of every category in one shot.
+    global $wpdb;
+    $icl_table = $wpdb->prefix . 'icl_translations';
+    $rows = $wpdb->get_results( "
+        SELECT t.term_id, t.name, t.slug,
+               icl.trid, icl.language_code
+        FROM   {$wpdb->term_taxonomy} tt
+        JOIN   {$wpdb->terms}         t   ON t.term_id = tt.term_id
+        JOIN   {$icl_table}           icl ON icl.element_id   = tt.term_taxonomy_id
+                                         AND icl.element_type = 'tax_category'
+        WHERE  tt.taxonomy = 'category'
+    " );
+    if ( $rows === null ) {
+        return new WP_Error(
+            'db_error',
+            'Failed to query categories from the database.',
+            array( 'status' => 500 )
+        );
     }
 
-    // Group every category by its WPML trid.  Each row in the result
-    // represents one translation group, with optional 'he' and 'en' entries.
-    //
-    // WPML gotcha: for taxonomies, the `wpml_element_trid` and
-    // `wpml_element_language_details` filters take the term_taxonomy_id
-    // (NOT term_id).  This is inconsistent with `wpml_object_id`, which for
-    // taxonomies takes term_id.  Documented but easy to miss.
+    // Group every row by its WPML trid.  Each entry in the result
+    // represents one translation group, with optional 'he' and 'en' members.
     $by_trid = array();
-    foreach ( $categories as $term ) {
-        $tt_id = (int) $term->term_taxonomy_id;
-        $trid  = apply_filters(
-            'wpml_element_trid', null, $tt_id, 'tax_category'
-        );
-        $lang_details = apply_filters(
-            'wpml_element_language_details', null,
-            array(
-                'element_id'   => $tt_id,
-                'element_type' => 'tax_category',
-            )
-        );
-        $lang = $lang_details && isset( $lang_details->language_code )
-            ? $lang_details->language_code
-            : '';
+    foreach ( $rows as $row ) {
+        $trid = (int) $row->trid;
+        $lang = (string) $row->language_code;
         if ( ! $trid || ! $lang ) {
             continue;
         }
         $key = (string) $trid;
         if ( ! isset( $by_trid[ $key ] ) ) {
-            $by_trid[ $key ] = array( 'trid' => (int) $trid );
+            $by_trid[ $key ] = array( 'trid' => $trid );
         }
         $by_trid[ $key ][ $lang ] = array(
-            'id'   => (int) $term->term_id,
-            'name' => $term->name,
-            'slug' => $term->slug,
+            'id'   => (int) $row->term_id,
+            'name' => $row->name,
+            'slug' => $row->slug,
         );
     }
 
