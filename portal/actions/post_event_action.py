@@ -135,33 +135,40 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Delete failed: {e}")
 
-    def list_categories(self, env: str = 'staging', lang: str = '') -> ActionResult:
-        """Fetch all categories from WordPress, optionally filtered by WPML
-        language.  Returns ActionResult with data = [{id, name, slug}, ...]
-        sorted as WordPress returned them (default: name ASC).
+    def list_category_pairs(self, env: str = 'staging') -> ActionResult:
+        """Fetch categories from WordPress grouped by WPML translation group.
+
+        Calls the portal's custom endpoint (yedidya/v1/category-pairs) which
+        returns each translation group as one row, so the Hebrew and English
+        columns in the post-event window can be rendered with perfect
+        alignment — row N on both sides is the same logical category.
+
+        Returns ActionResult with data = [
+            { 'trid': int,
+              'he':   {'id': int, 'name': str, 'slug': str} | None,
+              'en':   {'id': int, 'name': str, 'slug': str} | None },
+            ...
+        ]  sorted by Hebrew name (or English when no Hebrew).
         """
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
         try:
-            params = {'per_page': 100, 'context': 'view'}
-            if lang:
-                params['lang'] = lang
             resp = requests.get(
-                f"{base}/wp-json/wp/v2/categories",
-                params=params, auth=auth, timeout=30,
+                f"{base}/wp-json/yedidya/v1/category-pairs",
+                auth=auth, timeout=30,
             )
             if resp.status_code == 401:
                 return ActionResult(False, "401 Unauthorized — check credentials.")
+            if resp.status_code == 404:
+                return ActionResult(
+                    False,
+                    "Endpoint not found (yedidya/v1/category-pairs).\n"
+                    "Update the Yedidya Admin Portal plugin on the site.",
+                )
             resp.raise_for_status()
-            cats = resp.json()
-            return ActionResult(True, f"Fetched {len(cats)} categories.", data=[
-                {'id': c.get('id', 0),
-                 'name': c.get('name', ''),
-                 'slug': c.get('slug', '')}
-                for c in cats
-            ])
+            return ActionResult(True, "Fetched.", data=resp.json())
         except Exception as e:
-            return ActionResult(False, f"Failed to fetch categories: {e}")
+            return ActionResult(False, f"Failed to fetch category pairs: {e}")
 
     def find_template(self, template: str, env: str = 'staging') -> ActionResult:
         """Look up the template post/page on the site and return its identifying
@@ -368,14 +375,23 @@ class PostEventAction(BaseAction):
             content = content.replace(placeholders['description'], description)
 
         # ── 3. Resolve category names → IDs ───────────────────────────────
+        # CRITICAL: pass lang= to the categories endpoint, otherwise
+        # WordPress returns categories in the default language only.  An
+        # English save would then fail to resolve English category names
+        # (they don't exist in the Hebrew category list), the post would be
+        # saved with no categories assigned, and the warning would be
+        # silently buried in the log.
         _progress("Resolving categories…")
         cat_ids  = []
         warnings = []
         if categories:
             try:
+                cat_params = {'per_page': 100}
+                if lang:
+                    cat_params['lang'] = lang
                 cat_resp = requests.get(
                     f"{base}/wp-json/wp/v2/categories",
-                    params={'per_page': 100},
+                    params=cat_params,
                     auth=auth, timeout=30,
                 )
                 cat_resp.raise_for_status()
@@ -384,7 +400,7 @@ class PostEventAction(BaseAction):
                     if name in name_to_id:
                         cat_ids.append(name_to_id[name])
                     else:
-                        warnings.append(f"Category not found on site: '{name}'")
+                        warnings.append(f"Category not found on site ({lang or 'default'}): '{name}'")
             except Exception as e:
                 return ActionResult(False, f"Failed to fetch categories: {e}")
 

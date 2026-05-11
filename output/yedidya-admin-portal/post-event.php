@@ -29,6 +29,18 @@ add_action( 'rest_api_init', 'yedidya_register_post_event_routes' );
 function yedidya_register_post_event_routes() {
     register_rest_route(
         'yedidya/v1',
+        '/category-pairs',
+        [
+            'methods'             => 'GET',
+            'callback'            => 'yedidya_category_pairs_callback',
+            'permission_callback' => function () {
+                return current_user_can( 'edit_posts' );
+            },
+        ]
+    );
+
+    register_rest_route(
+        'yedidya/v1',
         '/duplicate-post',
         [
             'methods'             => 'POST',
@@ -53,6 +65,83 @@ function yedidya_register_post_event_routes() {
         ]
     );
 
+}
+
+if ( ! function_exists( 'yedidya_category_pairs_callback' ) ) {
+function yedidya_category_pairs_callback( WP_REST_Request $request ) {
+    if ( ! has_filter( 'wpml_element_trid' ) ) {
+        return new WP_Error(
+            'wpml_missing',
+            'WPML is not active on this site.',
+            array( 'status' => 501 )
+        );
+    }
+
+    $categories = get_terms( array(
+        'taxonomy'   => 'category',
+        'hide_empty' => false,
+    ) );
+    if ( is_wp_error( $categories ) ) {
+        return $categories;
+    }
+
+    // Group every category by its WPML trid.  Each row in the result
+    // represents one translation group, with optional 'he' and 'en' entries.
+    $by_trid = array();
+    foreach ( $categories as $term ) {
+        $trid = apply_filters(
+            'wpml_element_trid', null, $term->term_id, 'tax_category'
+        );
+        $lang_details = apply_filters(
+            'wpml_element_language_details', null,
+            array(
+                'element_id'   => $term->term_id,
+                'element_type' => 'tax_category',
+            )
+        );
+        $lang = $lang_details && isset( $lang_details->language_code )
+            ? $lang_details->language_code
+            : '';
+        if ( ! $trid || ! $lang ) {
+            continue;
+        }
+        $key = (string) $trid;
+        if ( ! isset( $by_trid[ $key ] ) ) {
+            $by_trid[ $key ] = array( 'trid' => (int) $trid );
+        }
+        $by_trid[ $key ][ $lang ] = array(
+            'id'   => (int) $term->term_id,
+            'name' => $term->name,
+            'slug' => $term->slug,
+        );
+    }
+
+    // Return only groups that have an 'he' or 'en' entry (the post-event
+    // window only renders those two languages), sorted by Hebrew name
+    // when present, else English — this is the row order in the UI.
+    $result = array();
+    foreach ( $by_trid as $group ) {
+        $he = isset( $group['he'] ) ? $group['he'] : null;
+        $en = isset( $group['en'] ) ? $group['en'] : null;
+        if ( ! $he && ! $en ) {
+            continue;
+        }
+        $result[] = array(
+            'trid' => $group['trid'],
+            'he'   => $he,
+            'en'   => $en,
+        );
+    }
+    usort( $result, function ( $a, $b ) {
+        $ka = isset( $a['he']['name'] ) ? $a['he']['name']
+            : ( isset( $a['en']['name'] ) ? $a['en']['name'] : '' );
+        $kb = isset( $b['he']['name'] ) ? $b['he']['name']
+            : ( isset( $b['en']['name'] ) ? $b['en']['name'] : '' );
+        return strcmp( $ka, $kb );
+    } );
+
+    return rest_ensure_response( $result );
+}
 }
 
 function yedidya_duplicate_post_callback( WP_REST_Request $request ) {

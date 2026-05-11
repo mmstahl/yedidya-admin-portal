@@ -332,46 +332,70 @@ class PostEventWindow(tk.Toplevel):
         threading.Thread(target=self._run_fetch_categories, daemon=True).start()
 
     def _run_fetch_categories(self):
-        results = {}
-        for lang in ('he', 'en'):
-            results[lang] = self.action.list_categories(env=self.env, lang=lang)
-        self.after(0, self._finish_fetch_categories, results)
+        result = self.action.list_category_pairs(env=self.env)
+        self.after(0, self._finish_fetch_categories, result)
 
-    def _finish_fetch_categories(self, results):
-        """Replace each side's 'Loading…' placeholder with real checkboxes."""
+    def _finish_fetch_categories(self, result):
+        """Replace each side's 'Loading…' placeholder with checkboxes.
+        Both sides are rendered together row-by-row from the trid-grouped
+        result, so row N on the Hebrew column maps to row N on the English
+        column (same translation group)."""
         try:
+            # Clear placeholders on both sides
             for lang in ('he', 'en'):
                 frame = self._cat_frame[lang]
                 if frame is None:
                     continue
-
-                # Clear placeholder (or any previous content)
                 for child in frame.winfo_children():
                     child.destroy()
-
-                r = results.get(lang)
-                if not r or not r.success:
-                    err = (r.message if r else 'no response')
-                    ttk.Label(frame, text=f"⚠ Failed to load categories:\n{err}",
-                              foreground="#b00020", wraplength=240,
-                              justify="left").pack(anchor='w')
-                    continue
-
-                cats = r.data or []
                 self._cat_vars[lang] = {}
-                if not cats:
-                    ttk.Label(frame, text="(no categories on the site)",
-                              foreground="gray").pack(anchor='w')
-                else:
-                    for cat in cats:
+
+            if not result or not result.success:
+                err = (result.message if result else 'no response')
+                for lang in ('he', 'en'):
+                    frame = self._cat_frame[lang]
+                    if frame:
+                        ttk.Label(
+                            frame,
+                            text=f"⚠ Failed to load categories:\n{err}",
+                            foreground="#b00020", wraplength=240,
+                            justify="left",
+                        ).pack(anchor='w')
+                return
+
+            pairs = result.data or []
+            if not pairs:
+                for lang in ('he', 'en'):
+                    frame = self._cat_frame[lang]
+                    if frame:
+                        ttk.Label(frame, text="(no categories on the site)",
+                                  foreground="gray").pack(anchor='w')
+                return
+
+            # Render each pair as one row in both columns.  Using a
+            # Checkbutton on every row (real or disabled-placeholder)
+            # keeps vertical heights identical, so the two columns
+            # stay perfectly aligned.
+            for pair in pairs:
+                for lang in ('he', 'en'):
+                    cat = pair.get(lang)
+                    frame = self._cat_frame[lang]
+                    if cat:
                         name = cat.get('name', '')
-                        if not name:
-                            continue
                         var = tk.BooleanVar()
                         self._cat_vars[lang][name] = var
-                        ttk.Checkbutton(frame, text=name, variable=var).pack(anchor='w')
+                        ttk.Checkbutton(
+                            frame, text=name, variable=var,
+                        ).pack(anchor='w')
+                    else:
+                        # Placeholder so the row exists on this side too.
+                        ttk.Checkbutton(
+                            frame, text="(no translation)",
+                            variable=tk.BooleanVar(), state='disabled',
+                        ).pack(anchor='w')
 
-                # Apply any defaults that were waiting for the list to arrive.
+            # Apply any defaults that were waiting for the list to arrive.
+            for lang in ('he', 'en'):
                 pending = self._pending_default_cats.get(lang, [])
                 if pending:
                     sset = set(pending)
