@@ -52,6 +52,84 @@ function yedidya_register_post_event_routes() {
             ],
         ]
     );
+
+    register_rest_route(
+        'yedidya/v1',
+        '/category-translations',
+        [
+            'methods'             => 'GET',
+            'callback'            => 'yedidya_category_translations_callback',
+            'permission_callback' => function () {
+                return current_user_can( 'edit_posts' );
+            },
+        ]
+    );
+}
+
+if ( ! function_exists( 'yedidya_category_translations_callback' ) ) {
+function yedidya_category_translations_callback( WP_REST_Request $request ) {
+    if ( ! has_filter( 'wpml_element_trid' ) ) {
+        return new WP_Error(
+            'wpml_missing',
+            'WPML is not active on this site.',
+            array( 'status' => 501 )
+        );
+    }
+
+    $categories = get_terms( array(
+        'taxonomy'   => 'category',
+        'hide_empty' => false,
+    ) );
+    if ( is_wp_error( $categories ) ) {
+        return $categories;
+    }
+
+    // Group every category by its WPML translation-group ID (trid).  All
+    // language versions of the same logical category share one trid.
+    $by_trid = array();
+    $orphans = array();   // categories not part of any WPML group at all
+
+    foreach ( $categories as $term ) {
+        $trid = apply_filters(
+            'wpml_element_trid', null, $term->term_id, 'tax_category'
+        );
+        $lang_details = apply_filters(
+            'wpml_element_language_details', null,
+            array(
+                'element_id'   => $term->term_id,
+                'element_type' => 'tax_category',
+            )
+        );
+        $lang = $lang_details && isset( $lang_details->language_code )
+            ? $lang_details->language_code
+            : '';
+
+        $entry = array(
+            'id'   => (int) $term->term_id,
+            'name' => $term->name,
+            'slug' => $term->slug,
+            'lang' => $lang,
+        );
+
+        if ( $trid ) {
+            $key = (string) $trid;
+            if ( ! isset( $by_trid[ $key ] ) ) {
+                $by_trid[ $key ] = array(
+                    'trid'         => (int) $trid,
+                    'translations' => array(),
+                );
+            }
+            $by_trid[ $key ]['translations'][ $lang ] = $entry;
+        } else {
+            $orphans[] = $entry;
+        }
+    }
+
+    return rest_ensure_response( array(
+        'groups'  => array_values( $by_trid ),
+        'orphans' => $orphans,
+    ) );
+}
 }
 
 function yedidya_duplicate_post_callback( WP_REST_Request $request ) {

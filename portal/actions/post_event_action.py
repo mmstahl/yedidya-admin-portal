@@ -135,6 +135,36 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Delete failed: {e}")
 
+    def list_category_translations(self, env: str = 'staging') -> ActionResult:
+        """Fetch every category and its WPML translation pairing.
+
+        Returns ActionResult with data = {
+            'groups':  [ { 'trid': int,
+                           'translations': { 'he': {id,name,slug,lang},
+                                             'en': {id,name,slug,lang}, ... } }, ... ],
+            'orphans': [ {id,name,slug,lang}, ... ],   # not in any WPML group
+        }
+        """
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            resp = requests.get(
+                f"{base}/wp-json/yedidya/v1/category-translations",
+                auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            if resp.status_code == 404:
+                return ActionResult(
+                    False,
+                    "Endpoint not found (yedidya/v1/category-translations).\n"
+                    "Update the Yedidya Admin Portal plugin on the site."
+                )
+            resp.raise_for_status()
+            return ActionResult(True, "Categories fetched.", data=resp.json())
+        except Exception as e:
+            return ActionResult(False, f"Failed to fetch categories: {e}")
+
     def find_template(self, template: str, env: str = 'staging') -> ActionResult:
         """Look up the template post/page on the site and return its identifying
         info so the user can find and edit it (e.g. to rename its slug).
