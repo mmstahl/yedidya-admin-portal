@@ -262,10 +262,17 @@ class PostEventAction(BaseAction):
     def run(self, template: str, title: str, categories: list,
             date: str = '', description: str = '', image_path: str = '',
             caption: str = '', lang: str = '', env: str = 'staging',
-            is_new_image: bool = False, progress_cb=None) -> ActionResult:
+            is_new_image: bool = False, progress_cb=None,
+            existing_id: int = None) -> ActionResult:
         """Create or update one post in one language. Fully self-contained:
         every call is treated as an independent entity — no cross-language
         state, no shared image uploads, no shared create/update flags.
+
+        existing_id: when provided, skip the title lookup and update that
+        specific post. Used by the bilingual-create flow to update the
+        WPML-duplicated English post by its known ID, and by the
+        "Update existing post" checkbox to rename a post (change its title
+        without creating a new one).
 
         Image resolution rules (per this single post):
           - image_path provided AND (is_new_image OR no existing post)
@@ -349,11 +356,15 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, f"Failed to fetch categories: {e}")
 
         # ── 4. Find existing post (needed before image step) ──────────────
-        _progress("Checking for existing post…")
-        find_result = self.find_post(title, env, lang=lang)
-        if not find_result.success:
-            return find_result
-        existing_id = find_result.data
+        # Skip the lookup if the caller already knows the ID (e.g. updating
+        # the WPML-duplicated English post by its known post_id, or the
+        # "Update existing post" checkbox locked in a target).
+        if existing_id is None:
+            _progress("Checking for existing post…")
+            find_result = self.find_post(title, env, lang=lang)
+            if not find_result.success:
+                return find_result
+            existing_id = find_result.data
 
         # ── 5. Resolve or upload image (per this post — fully independent) ────
         if 'image' in tpl_config.get('fields', []):
