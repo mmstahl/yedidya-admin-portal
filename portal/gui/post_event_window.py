@@ -257,15 +257,19 @@ class PostEventWindow(tk.Toplevel):
             self._img_path_var_en, self._thumb_label_en = img_path_var, thumb_label
 
         # ── Caption ──────────────────────────────────────────────────
+        # Captions are short, so we use wrap='word' (no horizontal scrollbar)
+        # for both languages.  The "text teleport" bug that drove the
+        # wrap='none' decision (see decisions.md 2026-04-25) only affects
+        # long text — descriptions still use the RTL-with-scrollbar helper.
         lbl_cap = ttk.Label(parent, text="Caption:")
         lbl_cap.grid(row=6, column=0, sticky="ne", **pad)
+        cap_text = tk.Text(parent, height=3, wrap="word", font=("Segoe UI", 9))
+        cap_text.grid(row=6, column=1, sticky="ew", **pad)
+        cap_grid = cap_text
         if is_he:
-            cap_text, cap_grid = self._make_rtl_text(parent, height=3, row=6, pad=pad)
+            self._configure_rtl_text(cap_text)
             self._caption_he_text = cap_text
         else:
-            cap_text = tk.Text(parent, height=3, wrap="word", font=("Segoe UI", 9))
-            cap_text.grid(row=6, column=1, sticky="ew", **pad)
-            cap_grid = cap_text
             self._caption_en_text = cap_text
         self._field_rows[lang]['caption'] = (lbl_cap, cap_grid)
 
