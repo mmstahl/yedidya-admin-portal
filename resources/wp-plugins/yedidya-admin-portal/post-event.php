@@ -109,25 +109,61 @@ function yedidya_duplicate_post_callback( WP_REST_Request $request ) {
         );
     }
 
-    // Copy categories from the source post.
-    $cat_ids = wp_get_post_categories( $source_id, [ 'fields' => 'ids' ] );
-    if ( ! empty( $cat_ids ) ) {
-        wp_set_post_categories( $new_post_id, $cat_ids );
+    // Translate categories so the new post is assigned to the target-language
+    // category (not the source-language one).  Without this step the English
+    // duplicate lands in the Hebrew אירועים category, and the English category
+    // page shows nothing because there are no posts in the English Events
+    // category.  Requires each category to be translated in
+    // WPML → Taxonomy Translation → Categories.
+    $source_cat_ids        = wp_get_post_categories( $source_id, [ 'fields' => 'ids' ] );
+    $translated_cat_ids    = array();
+    $missing_translations  = array();
+
+    foreach ( $source_cat_ids as $cat_id ) {
+        // 3rd arg false → returns null if no translation exists (so we can
+        // detect it and warn the caller).
+        $translated = apply_filters(
+            'wpml_object_id', $cat_id, 'category', false, $target_lang
+        );
+        if ( $translated ) {
+            $translated_cat_ids[] = (int) $translated;
+        } else {
+            $term = get_term( $cat_id, 'category' );
+            $missing_translations[] = $term && ! is_wp_error( $term )
+                ? $term->name
+                : "ID {$cat_id}";
+        }
+    }
+
+    if ( ! empty( $translated_cat_ids ) ) {
+        wp_set_post_categories( $new_post_id, $translated_cat_ids );
     }
 
     // Register the new post as a WPML translation sibling of the source.
     // This is the key step — it assigns the language AND links both posts
     // in the same translation group so WPML shows the language switcher.
-    do_action( 'wpml_set_element_language_details', [
+    do_action( 'wpml_set_element_language_details', array(
         'element_id'           => $new_post_id,
         'element_type'         => $element_type,
         'trid'                 => $trid,
         'language_code'        => $target_lang,
         'source_language_code' => $source_lang,
-    ] );
+    ) );
 
-    return rest_ensure_response( [
+    $response = array(
         'id'   => $new_post_id,
         'link' => get_permalink( $new_post_id ),
-    ] );
+    );
+    if ( ! empty( $missing_translations ) ) {
+        $response['warnings'] = array(
+            sprintf(
+                'These categories have no %s translation in WPML and were skipped: %s. '
+                . 'Translate them in WPML → Taxonomy Translation → Categories, '
+                . 'then re-run to fix the new post\'s categories.',
+                strtoupper( $target_lang ),
+                implode( ', ', $missing_translations )
+            ),
+        );
+    }
+    return rest_ensure_response( $response );
 }

@@ -252,9 +252,14 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Failed to duplicate post: {e}")
 
-        post_id = data.get('id', 0)
-        link    = data.get('link', '')
-        return ActionResult(True, f"Duplicate created in '{target_lang}'. ID: {post_id}", data={
+        post_id  = data.get('id', 0)
+        link     = data.get('link', '')
+        warnings = data.get('warnings', []) or []
+
+        msg = f"Duplicate created in '{target_lang}'. ID: {post_id}"
+        if warnings:
+            msg += "\nWarnings:\n  - " + "\n  - ".join(warnings)
+        return ActionResult(True, msg, data={
             'link': link,
             'id':   post_id,
         })
