@@ -135,6 +135,34 @@ class PostEventAction(BaseAction):
         except Exception as e:
             return ActionResult(False, f"Delete failed: {e}")
 
+    def list_categories(self, env: str = 'staging', lang: str = '') -> ActionResult:
+        """Fetch all categories from WordPress, optionally filtered by WPML
+        language.  Returns ActionResult with data = [{id, name, slug}, ...]
+        sorted as WordPress returned them (default: name ASC).
+        """
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            params = {'per_page': 100, 'context': 'view'}
+            if lang:
+                params['lang'] = lang
+            resp = requests.get(
+                f"{base}/wp-json/wp/v2/categories",
+                params=params, auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            cats = resp.json()
+            return ActionResult(True, f"Fetched {len(cats)} categories.", data=[
+                {'id': c.get('id', 0),
+                 'name': c.get('name', ''),
+                 'slug': c.get('slug', '')}
+                for c in cats
+            ])
+        except Exception as e:
+            return ActionResult(False, f"Failed to fetch categories: {e}")
+
     def find_template(self, template: str, env: str = 'staging') -> ActionResult:
         """Look up the template post/page on the site and return its identifying
         info so the user can find and edit it (e.g. to rename its slug).

@@ -45,19 +45,6 @@ try:
 except ImportError:
     _PIL_AVAILABLE = False
 
-CATEGORIES = [
-    'אירועים',
-    'אירועים קרובים',
-    'גיוס כספים',
-    'השבוע בידידיה',
-    'ידיעות ידידיה',
-    'ללא קטגוריה',
-    'עדכוני שבעה',
-    'Upcoming Events',
-    'מידע נוסף',
-]
-
-
 class PostEventWindow(tk.Toplevel):
     def __init__(self, parent, action: PostEventAction, env='staging'):
         super().__init__(parent)
@@ -77,12 +64,16 @@ class PostEventWindow(tk.Toplevel):
         self._field_rows = {'he': {}, 'en': {}}
         self._thumb_rows = {'he': None, 'en': None}
 
-        # Per-language category BooleanVars — source of truth regardless of which
-        # category checkbox is currently focused.
-        self._cat_vars = {
-            lang: {cat: tk.BooleanVar() for cat in CATEGORIES}
-            for lang in ('he', 'en')
-        }
+        # Per-language category BooleanVars — populated dynamically once the
+        # background fetch from WordPress returns.  Until then, each side's
+        # dict is empty and a "Loading…" placeholder is shown.
+        # _cat_vars[lang]            : {name: BooleanVar(), ...}
+        # _cat_frame[lang]           : the parent ttk.Frame holding the checkboxes
+        # _pending_default_cats[lang]: names from saved defaults waiting to be
+        #                              applied once the real list arrives
+        self._cat_vars            = {'he': {}, 'en': {}}
+        self._cat_frame           = {'he': None, 'en': None}
+        self._pending_default_cats = {'he': [], 'en': []}
 
         # Existence / "update existing post" state, per language.
         # _existing_post_id[lang]  : ID found by background title-check (None if none)
@@ -102,6 +93,9 @@ class PostEventWindow(tk.Toplevel):
         self._load_defaults()
         self._center(parent)
         self.minsize(1000, 760)
+        # Kick off the WordPress category fetch.  Each side's column shows a
+        # "Loading categories…" placeholder until this completes.
+        self._fetch_categories_async()
 
     # ==================================================================
     # Layout
@@ -275,14 +269,13 @@ class PostEventWindow(tk.Toplevel):
             self._caption_en_text = cap_text
         self._field_rows[lang]['caption'] = (lbl_cap, cap_grid)
 
-        # ── Categories ───────────────────────────────────────────────
+        # ── Categories (populated dynamically) ───────────────────────
         ttk.Label(parent, text="Categories:").grid(row=7, column=0, sticky="ne", **pad)
         cat_frame = ttk.Frame(parent)
         cat_frame.grid(row=7, column=1, sticky="ew", **pad)
-        for cat in CATEGORIES:
-            ttk.Checkbutton(
-                cat_frame, text=cat, variable=self._cat_vars[lang][cat],
-            ).pack(anchor='w')
+        ttk.Label(cat_frame, text="Loading categories…",
+                  foreground="gray").pack(anchor='w')
+        self._cat_frame[lang] = cat_frame
 
     def _make_rtl_text(self, parent, height, row, pad):
         """RTL no-wrap Text in a scrollable frame.  See decisions.md
@@ -311,12 +304,84 @@ class PostEventWindow(tk.Toplevel):
     # ==================================================================
 
     def _get_categories(self, lang):
-        return [cat for cat in CATEGORIES if self._cat_vars[lang][cat].get()]
+        """Return the names of the currently-selected categories for this
+        language.  Iterates over self._cat_vars in insertion order (the order
+        WordPress returned them in)."""
+        return [name for name, var in self._cat_vars[lang].items() if var.get()]
 
     def _set_categories(self, lang, selected):
+        """Set the selected categories for this language.
+
+        If the dynamic category list hasn't loaded yet (the fetch is still in
+        flight), stash the desired names in _pending_default_cats — they get
+        applied automatically once the fetch completes.  Names not in the
+        real list are silently dropped, since they no longer exist on the site.
+        """
+        if not self._cat_vars[lang]:
+            self._pending_default_cats[lang] = list(selected)
+            return
         sset = set(selected)
-        for cat, var in self._cat_vars[lang].items():
-            var.set(cat in sset)
+        for name, var in self._cat_vars[lang].items():
+            var.set(name in sset)
+
+    # ==================================================================
+    # Categories fetch (background)
+    # ==================================================================
+
+    def _fetch_categories_async(self):
+        threading.Thread(target=self._run_fetch_categories, daemon=True).start()
+
+    def _run_fetch_categories(self):
+        results = {}
+        for lang in ('he', 'en'):
+            results[lang] = self.action.list_categories(env=self.env, lang=lang)
+        self.after(0, self._finish_fetch_categories, results)
+
+    def _finish_fetch_categories(self, results):
+        """Replace each side's 'Loading…' placeholder with real checkboxes."""
+        try:
+            for lang in ('he', 'en'):
+                frame = self._cat_frame[lang]
+                if frame is None:
+                    continue
+
+                # Clear placeholder (or any previous content)
+                for child in frame.winfo_children():
+                    child.destroy()
+
+                r = results.get(lang)
+                if not r or not r.success:
+                    err = (r.message if r else 'no response')
+                    ttk.Label(frame, text=f"⚠ Failed to load categories:\n{err}",
+                              foreground="#b00020", wraplength=240,
+                              justify="left").pack(anchor='w')
+                    continue
+
+                cats = r.data or []
+                self._cat_vars[lang] = {}
+                if not cats:
+                    ttk.Label(frame, text="(no categories on the site)",
+                              foreground="gray").pack(anchor='w')
+                else:
+                    for cat in cats:
+                        name = cat.get('name', '')
+                        if not name:
+                            continue
+                        var = tk.BooleanVar()
+                        self._cat_vars[lang][name] = var
+                        ttk.Checkbutton(frame, text=name, variable=var).pack(anchor='w')
+
+                # Apply any defaults that were waiting for the list to arrive.
+                pending = self._pending_default_cats.get(lang, [])
+                if pending:
+                    sset = set(pending)
+                    for name, var in self._cat_vars[lang].items():
+                        if name in sset:
+                            var.set(True)
+                    self._pending_default_cats[lang] = []
+        except tk.TclError:
+            # Window closed before the fetch came back.
+            pass
 
     # ==================================================================
     # Template
