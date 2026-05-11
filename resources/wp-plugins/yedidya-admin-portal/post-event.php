@@ -87,15 +87,21 @@ function yedidya_category_pairs_callback( WP_REST_Request $request ) {
 
     // Group every category by its WPML trid.  Each row in the result
     // represents one translation group, with optional 'he' and 'en' entries.
+    //
+    // WPML gotcha: for taxonomies, the `wpml_element_trid` and
+    // `wpml_element_language_details` filters take the term_taxonomy_id
+    // (NOT term_id).  This is inconsistent with `wpml_object_id`, which for
+    // taxonomies takes term_id.  Documented but easy to miss.
     $by_trid = array();
     foreach ( $categories as $term ) {
-        $trid = apply_filters(
-            'wpml_element_trid', null, $term->term_id, 'tax_category'
+        $tt_id = (int) $term->term_taxonomy_id;
+        $trid  = apply_filters(
+            'wpml_element_trid', null, $tt_id, 'tax_category'
         );
         $lang_details = apply_filters(
             'wpml_element_language_details', null,
             array(
-                'element_id'   => $term->term_id,
+                'element_id'   => $tt_id,
                 'element_type' => 'tax_category',
             )
         );
