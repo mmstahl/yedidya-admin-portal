@@ -69,7 +69,12 @@ class PostEventAction(BaseAction):
         REST API returns a list of existing posts instead of creating a new
         one.  This wrapper follows redirects manually, always re-posting to
         the redirect target so the body is never lost.
+
+        WordPress sometimes returns a relative Location header (e.g.
+        /wp-json/wp/v2/posts/) — resolved against the current URL via
+        urljoin so the scheme and host are never lost.
         """
+        from urllib.parse import urljoin
         resp = requests.post(
             url, params=params, json=json, auth=auth,
             timeout=timeout, allow_redirects=False,
@@ -81,6 +86,9 @@ class PostEventAction(BaseAction):
             location = resp.headers.get('Location', '')
             if not location:
                 break
+            # Resolve relative redirects (e.g. /wp-json/...) against the
+            # URL that issued the redirect so scheme+host are always present.
+            location = urljoin(resp.url, location)
             resp = requests.post(
                 location, json=json, auth=auth,
                 timeout=timeout, allow_redirects=False,
