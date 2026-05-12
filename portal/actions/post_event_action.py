@@ -116,42 +116,43 @@ class PostEventAction(BaseAction):
         return ''.join(c for c in s if unicodedata.category(c) != 'Cf').strip()
 
     def find_post(self, title: str, env: str = 'staging', lang: str = '',
-                  log_cb=None) -> ActionResult:
+                  log_cb=None, verbose_cb=None) -> ActionResult:
         """Return ActionResult with data=post_id (int) if found, data=None if not.
 
-        log_cb: optional callable(str) — receives diagnostic lines so the
-                caller can surface them in the UI log.  Pass None to suppress.
+        log_cb     : optional callable(str) — always-visible progress lines
+                     (page scanned, match found / not found).
+        verbose_cb : optional callable(str) — detailed diagnostics shown only
+                     when the user enables verbose logging.  Pass None to suppress.
 
         Search strategy:
-          1. Search with ?lang=<lang> (WPML-aware, preferred).
+          1. Fetch with ?lang=<lang> (WPML-aware, preferred).
           2. If nothing matches, retry without ?lang (catches posts not
-             registered in WPML's language table, or posts where WPML's
-             REST filter blocks the search result).
-        Both passes use per_page=100 to handle large archives where
-        WordPress's recency ranking would bury older posts.
+             registered in WPML's language table).
+          Both passes page through 100 posts at a time.
+
+        NOTE: ?search= is broken on WordPress.com staging — it returns HTTP 200
+        with [] for every query.  We fetch page-by-page and match locally.
         """
-        def _log(msg):
+        def _log(msg):   # always shown
             if log_cb:
-                log_cb(f"[find_post] {msg}\n")
+                log_cb(f"{msg}\n")
+        def _vlog(msg):  # verbose only
+            if verbose_cb:
+                verbose_cb(f"[find_post] {msg}\n")
 
         base  = get_cred('wp_url', env).rstrip('/')
         auth  = self._auth(env)
         clean = self._clean_title(title)
 
-        _log(f"title (original) : {repr(title)}")
-        _log(f"title (cleaned)  : {repr(clean)}")
-        _log(f"lang hint        : {repr(lang)}")
+        _vlog(f"title (original) : {repr(title)}")
+        _vlog(f"title (cleaned)  : {repr(clean)}")
+        _vlog(f"lang hint        : {repr(lang)}")
 
-        # Build the list of lang values to try.  Always end with '' (no filter)
-        # as a fallback.  Deduplicate in case lang is already ''.
         lang_tries = [lang, ''] if lang else ['']
 
-        # NOTE: ?search= is broken on WordPress.com staging — it returns HTTP 200
-        # with an empty array [] regardless of the query.  We fetch posts
-        # page-by-page and match the title locally instead.
         try:
             for lang_try in lang_tries:
-                _log(f"--- pass lang={repr(lang_try)} ---")
+                _vlog(f"--- pass lang={repr(lang_try)} ---")
                 page = 1
                 while True:
                     params = {'per_page': 100, 'page': page}
@@ -159,39 +160,39 @@ class PostEventAction(BaseAction):
                         params['lang'] = lang_try
 
                     url = f"{base}/wp-json/wp/v2/posts"
-                    _log(f"GET {url}  params={params}")
+                    _vlog(f"GET {url}  params={params}")
 
                     resp = requests.get(url, params=params, auth=auth, timeout=30)
-                    _log(f"HTTP {resp.status_code}  ({len(resp.content)} bytes)")
+                    _vlog(f"HTTP {resp.status_code}  ({len(resp.content)} bytes)")
 
                     if resp.status_code == 401:
                         return ActionResult(False, "401 Unauthorized — check credentials.")
                     resp.raise_for_status()
 
-                    posts      = resp.json()
+                    posts       = resp.json()
                     total_pages = max(int(resp.headers.get('X-WP-TotalPages', 1)), 1)
                     total_posts = resp.headers.get('X-WP-Total', '?')
-                    _log(f"page {page}/{total_pages}  posts this page: {len(posts)}  total: {total_posts}")
+                    _log(f"Checking for existing post… page {page}/{total_pages} ({total_posts} posts total)")
+                    _vlog(f"posts this page: {len(posts)}")
 
                     for p in posts:
-                        t            = p.get('title', {}) or {}
-                        raw_rendered = t.get('rendered', '')
-                        decoded      = self._clean_title(raw_rendered)
-                        is_match     = decoded == clean
-                        if is_match:
-                            _log(f"  → MATCH  post {p['id']}  decoded={repr(decoded[:70])}")
+                        t        = p.get('title', {}) or {}
+                        decoded  = self._clean_title(t.get('rendered', ''))
+                        if decoded == clean:
+                            _log(f"Found: post #{p['id']}")
+                            _vlog(f"decoded title: {repr(decoded[:70])}")
                             return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
 
                     if page >= total_pages or not posts:
                         break
                     page += 1
 
-                _log(f"no match in this pass")
+                _vlog(f"no match in this pass")
 
-            _log("exhausted all passes — not found")
+            _log("Post not found.")
             return ActionResult(True, "Not found", data=None)
         except Exception as e:
-            _log(f"exception: {e}")
+            _log(f"Error: {e}")
             return ActionResult(False, f"Search failed: {e}")
 
     def delete(self, post_id: int, env: str = 'staging') -> ActionResult:

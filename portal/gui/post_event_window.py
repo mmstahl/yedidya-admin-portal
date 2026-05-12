@@ -52,8 +52,9 @@ class PostEventWindow(tk.Toplevel):
         self.title(f"Post/Update Event — {env.capitalize()}")
         self.resizable(True, True)
         self.grab_set()
-        self.action = action
-        self.env    = env
+        self.action       = action
+        self.env          = env
+        self._verbose_var = tk.BooleanVar(value=False)
 
         # Per-language image state
         self._image_path     = {'he': None, 'en': None}
@@ -147,13 +148,19 @@ class PostEventWindow(tk.Toplevel):
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
         log_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=4)
         log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
+        log_frame.rowconfigure(1, weight=1)
+
+        # Verbose checkbox sits in the top-right of the log frame.
+        ttk.Checkbutton(
+            log_frame, text="Verbose logging", variable=self._verbose_var,
+        ).grid(row=0, column=0, columnspan=2, sticky="e", pady=(0, 4))
+
         self._log = tk.Text(log_frame, height=12, state="disabled",
                             font=("Consolas", 9), bg="#f8f8f8", relief="flat")
         scrollbar = ttk.Scrollbar(log_frame, command=self._log.yview)
         self._log.configure(yscrollcommand=scrollbar.set)
-        self._log.grid(row=0, column=0, sticky="nsew")
-        scrollbar.grid(row=0, column=1, sticky="ns")
+        self._log.grid(row=1, column=0, sticky="nsew")
+        scrollbar.grid(row=1, column=1, sticky="ns")
 
         # ── Bottom bar ─────────────────────────────────────────────────
         bottom = ttk.Frame(self)
@@ -496,10 +503,13 @@ class PostEventWindow(tk.Toplevel):
         ).start()
 
     def _run_check_title(self, lang, title):
-        label = 'Hebrew' if lang == 'he' else 'English'
+        label    = 'Hebrew' if lang == 'he' else 'English'
+        verbose  = self._verbose_var.get()
+        def _cb(msg):
+            self.after(0, self._log_write, f"[{label} title-check] {msg}")
         result = self.action.find_post(
             title=title, env=self.env, lang=lang,
-            log_cb=lambda msg: self.after(0, self._log_write, f"[{label} title-check] {msg}"),
+            log_cb=_cb, verbose_cb=(_cb if verbose else None),
         )
         post_id = result.data if (result.success and result.data is not None) else None
         self.after(0, self._apply_title_check_result, lang, title, post_id)
@@ -1209,9 +1219,12 @@ class PostEventWindow(tk.Toplevel):
             else:
                 self.after(0, self._log_write,
                            f"[{label}] No cached ID — searching by title…\n")
+                verbose = self._verbose_var.get()
+                def _cb(msg, l=label):
+                    self.after(0, self._log_write, f"[{l}] {msg}")
                 find = self.action.find_post(
                     title=title, env=self.env, lang=lang,
-                    log_cb=lambda msg, l=label: self.after(0, self._log_write, f"[{l}] {msg}"),
+                    log_cb=_cb, verbose_cb=(_cb if verbose else None),
                 )
                 if not find.success:
                     results[lang] = {'post': find, 'media': None}

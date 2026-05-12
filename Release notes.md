@@ -2,6 +2,16 @@
 
 ---
 
+## v1.3.9 — 2026-05-12
+
+### Changed
+- **"Verbose logging" checkbox** added to the Log panel (top-right, default: unchecked).
+  - **Off (default)**: log shows only progress lines (`Checking for existing post… page 1/2 (150 posts total)`) and the result (`Found: post #12345` or `Post not found.`).
+  - **On**: full diagnostics — cleaned title, URL + params per request, HTTP status, decoded title and match result per matched post.
+- `find_post` now accepts separate `log_cb` (always shown) and `verbose_cb` (verbose only) callbacks. Both title-check and delete flows pass the correct callbacks based on the checkbox state.
+
+---
+
 ## v1.3.8 — 2026-05-12
 
 ### Changed
