@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.6 — 2026-05-12
+
+### Fixed
+- **Title match failing due to HTML entities**: WordPress returns `rendered` titles with HTML entities (e.g. en-dash `–` → `&#8211;`). Added `html.unescape()` as the first step in `_clean_title()` so both the user input and the WordPress-returned title are decoded to plain Unicode before comparison. Applies to all title lookups (find, title-check, delete).
+
+---
+
 ## v1.3.5 — 2026-05-12
 
 ### Fixed
