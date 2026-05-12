@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.12 — 2026-05-12
+
+### Diagnostic
+- **Verbose mode now logs every scanned post title** in `find_post`. Previously only the matching post's title was printed; now `#ID: 'decoded title'` is logged for every post on every page. Makes it immediately visible when the target title is absent from the results (post has wrong status, different title stored, etc.) vs. when it's present but the comparison fails.
+
+---
+
 ## v1.3.11 — 2026-05-12
 
 ### Changed

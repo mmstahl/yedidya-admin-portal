@@ -177,10 +177,11 @@ class PostEventAction(BaseAction):
 
                     for p in posts:
                         t        = p.get('title', {}) or {}
-                        decoded  = self._clean_title(t.get('rendered', ''))
+                        raw_rendered = t.get('rendered', '')
+                        decoded  = self._clean_title(raw_rendered)
+                        _vlog(f"  #{p['id']}: {repr(decoded[:80])}")
                         if decoded == clean:
                             _log(f"Found: post #{p['id']}")
-                            _vlog(f"decoded title: {repr(decoded[:70])}")
                             return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
 
                     if page >= total_pages or not posts:
