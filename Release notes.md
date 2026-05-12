@@ -2,6 +2,14 @@
 
 ---
 
+## v1.3.14 — 2026-05-12
+
+### Changed
+- **"Update existing post" checkbox is now auto-checked** when the title-check finds a matching post. Previously the user had to check it manually; skipping it caused the system to fall into create mode after any title edit.
+- **Save confirmation dialog for updates**: clicking Save when any side is in update mode now shows a confirmation popup listing which posts will be updated (title + post ID), with Yes / No. No returns to the window without saving.
+
+---
+
 ## v1.3.13 — 2026-05-12
 
 ### Fixed
