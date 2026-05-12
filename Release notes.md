@@ -2,6 +2,17 @@
 
 ---
 
+## v1.3.13 — 2026-05-12
+
+### Fixed
+- **Title match failing due to typographic character substitution**: WordPress's `wptexturize()` converts several ASCII sequences to typographic Unicode characters when rendering titles — most critically, ` - ` and `--` become en-dash/em-dash (`–`/`—`). This caused titles typed with a plain hyphen to never match their stored equivalents. `_clean_title()` now applies a full normalisation pipeline before comparing:
+  1. `html.unescape()` — decodes HTML entities (e.g. `&#8211;` → `–`)
+  2. Typographic map — smart single/double quotes (`'` `'` `"` `"` and variants) → straight ASCII equivalents; ellipsis (`…`) → `...`; non-breaking spaces → regular space
+  3. Unicode Pd (dash punctuation) → plain hyphen-minus — catches all dash variants not covered by the explicit map
+  4. Strip Unicode Cf format characters — invisible RTL/LTR marks from copied Hebrew text
+
+---
+
 ## v1.3.12 — 2026-05-12
 
 ### Diagnostic
