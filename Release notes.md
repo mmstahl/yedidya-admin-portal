@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.7 — 2026-05-12
+
+### Diagnostic
+- Improved `find_post` log to show three values side-by-side for each post: `wp_raw` (exactly what WordPress returned), `decoded` (after `html.unescape` + Cf-strip), and `want` (the cleaned input title). Makes it immediately visible whether the decoding is working and what the actual mismatch is.
+
+---
+
 ## v1.3.6 — 2026-05-12
 
 ### Fixed

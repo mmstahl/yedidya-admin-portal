@@ -174,10 +174,15 @@ class PostEventAction(BaseAction):
                     _log(f"page {page}/{total_pages}  posts this page: {len(posts)}  total: {total_posts}")
 
                     for p in posts:
-                        t          = p.get('title', {}) or {}
-                        rendered   = self._clean_title(t.get('rendered', ''))
-                        is_match   = rendered == clean
-                        _log(f"  post {p['id']:>7}  rendered={repr(t.get('rendered','')[:70])}  match={is_match}")
+                        t            = p.get('title', {}) or {}
+                        raw_rendered = t.get('rendered', '')
+                        decoded      = self._clean_title(raw_rendered)
+                        is_match     = decoded == clean
+                        _log(f"  post {p['id']:>7}  "
+                             f"wp_raw={repr(raw_rendered[:60])}  "
+                             f"decoded={repr(decoded[:60])}  "
+                             f"want={repr(clean[:60])}  "
+                             f"match={is_match}")
                         if is_match:
                             _log(f"  → MATCH")
                             return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
