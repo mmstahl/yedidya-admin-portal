@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import defaults_manager as dm
+from portal.version import VERSION
 from portal.credentials import credential_manager as cm
 from portal.gui.credentials_dialog import CredentialsDialog
 from portal.gui.action_window import MembersListWindow
@@ -82,9 +83,15 @@ class MainWindow(tk.Tk):
         ttk.Separator(self, orient="horizontal").grid(row=5, column=0, sticky="ew")
 
         # --- Status bar ---
+        status_bar = ttk.Frame(self)
+        status_bar.grid(row=6, column=0, sticky="ew")
+        status_bar.columnconfigure(0, weight=1)
+
         self._status_var = tk.StringVar(value="Ready")
-        ttk.Label(self, textvariable=self._status_var, foreground="gray",
-                  padding=(12, 4)).grid(row=6, column=0, sticky="w")
+        ttk.Label(status_bar, textvariable=self._status_var, foreground="gray",
+                  padding=(12, 4)).grid(row=0, column=0, sticky="w")
+        ttk.Label(status_bar, text=f"v{VERSION}", foreground="gray",
+                  padding=(0, 4, 12, 4)).grid(row=0, column=1, sticky="e")
 
     def _action_row(self, parent, row, action):
         frame = ttk.Frame(parent, padding=(0, 4))
