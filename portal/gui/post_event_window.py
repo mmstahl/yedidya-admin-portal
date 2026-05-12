@@ -33,6 +33,7 @@ import os
 import tempfile
 import threading
 import tkinter as tk
+import requests
 from tkinter import ttk, filedialog, messagebox
 
 import defaults_manager as dm
@@ -68,10 +69,12 @@ class PostEventWindow(tk.Toplevel):
         # background fetch from WordPress returns.  Until then, each side's
         # dict is empty and a "Loading…" placeholder is shown.
         # _cat_vars[lang]            : {name: BooleanVar(), ...}
+        # _cat_id_to_name[lang]      : {wp_category_id: name} — for pre-population
         # _cat_frame[lang]           : the parent ttk.Frame holding the checkboxes
         # _pending_default_cats[lang]: names from saved defaults waiting to be
         #                              applied once the real list arrives
         self._cat_vars            = {'he': {}, 'en': {}}
+        self._cat_id_to_name      = {'he': {}, 'en': {}}
         self._cat_frame           = {'he': None, 'en': None}
         self._pending_default_cats = {'he': [], 'en': []}
 
@@ -352,7 +355,8 @@ class PostEventWindow(tk.Toplevel):
                     continue
                 for child in frame.winfo_children():
                     child.destroy()
-                self._cat_vars[lang] = {}
+                self._cat_vars[lang]       = {}
+                self._cat_id_to_name[lang] = {}
 
             if not result or not result.success:
                 err = (result.message if result else 'no response')
@@ -386,8 +390,11 @@ class PostEventWindow(tk.Toplevel):
                     frame = self._cat_frame[lang]
                     if cat:
                         name = cat.get('name', '')
+                        cat_id = cat.get('id')
                         var = tk.BooleanVar()
                         self._cat_vars[lang][name] = var
+                        if cat_id:
+                            self._cat_id_to_name[lang][cat_id] = name
                         ttk.Checkbutton(
                             frame, text=name, variable=var,
                         ).pack(anchor='w')
@@ -501,8 +508,86 @@ class PostEventWindow(tk.Toplevel):
                 return
             self._existing_post_id[lang] = post_id
             self._refresh_update_existing_state(lang)
+            # Pre-populate image thumbnail and categories from the existing post.
+            if post_id is not None:
+                threading.Thread(
+                    target=self._run_load_existing_post,
+                    args=(lang, post_id),
+                    daemon=True,
+                ).start()
         except tk.TclError:
             # Window closed before the thread came back.
+            pass
+
+    def _run_load_existing_post(self, lang, post_id):
+        """Background: fetch image URL + category IDs for an existing post."""
+        result = self.action.fetch_post(post_id, env=self.env)
+        self.after(0, self._apply_existing_post_fields, lang, post_id, result)
+
+    def _apply_existing_post_fields(self, lang, post_id, result):
+        """Main thread: pre-populate image thumbnail and category checkboxes."""
+        try:
+            # Guard: the user may have edited the title since the fetch started.
+            if self._existing_post_id[lang] != post_id:
+                return
+            if not result.success or not result.data:
+                return
+            data = result.data
+
+            # ── Categories ────────────────────────────────────────────
+            # Map WordPress category IDs → names using the cached lookup,
+            # then tick the matching checkboxes.
+            cat_ids = set(data.get('categories', []))
+            for cat_id in cat_ids:
+                name = self._cat_id_to_name[lang].get(cat_id)
+                if name and name in self._cat_vars[lang]:
+                    self._cat_vars[lang][name].set(True)
+
+            # ── Image thumbnail ───────────────────────────────────────
+            # Show what image the existing post already has.  This is
+            # purely visual — _image_path stays None so that saving without
+            # a new image still uses Option C (reuse the existing media).
+            media_url = data.get('media_url', '')
+            if media_url and not self._image_path[lang]:
+                threading.Thread(
+                    target=self._run_fetch_thumbnail,
+                    args=(lang, post_id, media_url),
+                    daemon=True,
+                ).start()
+        except tk.TclError:
+            pass
+
+    def _run_fetch_thumbnail(self, lang, post_id, url):
+        """Background: download the image bytes for thumbnail display."""
+        try:
+            import io as _io
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            self.after(0, self._apply_thumbnail_from_bytes, lang, post_id, resp.content)
+        except Exception:
+            pass  # thumbnail is purely cosmetic — silent failure is fine
+
+    def _apply_thumbnail_from_bytes(self, lang, post_id, data):
+        """Main thread: render downloaded image bytes as a thumbnail."""
+        if not _PIL_AVAILABLE:
+            return
+        try:
+            import io as _io
+            # Guard: stale result if the post has changed.
+            if self._existing_post_id[lang] != post_id:
+                return
+            # Don't override a thumbnail the user explicitly set this session.
+            if self._image_path[lang]:
+                return
+            img   = Image.open(_io.BytesIO(data))
+            img.thumbnail((140, 90))
+            photo = ImageTk.PhotoImage(img)
+            self._thumb_photo[lang] = photo
+            label = self._thumb_label_he if lang == 'he' else self._thumb_label_en
+            label.configure(image=photo, text='')
+            path_var = self._img_path_var_he if lang == 'he' else self._img_path_var_en
+            path_var.set('(existing post image)')
+        except Exception:
             pass
 
     def _refresh_update_existing_state(self, lang):

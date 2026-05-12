@@ -95,30 +95,65 @@ class PostEventAction(BaseAction):
             )
         return resp
 
+    @staticmethod
+    def _clean_title(s: str) -> str:
+        """Strip Unicode format characters (category Cf) and whitespace.
+
+        Browsers and other apps embed invisible directional marks such as
+        U+200F RIGHT-TO-LEFT MARK in copied Hebrew text.  WordPress never
+        stores these, so a naive equality check fails.  Stripping Cf chars
+        from both sides before comparing fixes the mismatch.
+        """
+        import unicodedata
+        return ''.join(c for c in s if unicodedata.category(c) != 'Cf').strip()
+
     def find_post(self, title: str, env: str = 'staging', lang: str = '') -> ActionResult:
-        """Return ActionResult with data=post_id (int) if found, data=None if not."""
-        base = get_cred('wp_url', env).rstrip('/')
-        auth = self._auth(env)
+        """Return ActionResult with data=post_id (int) if found, data=None if not.
+
+        Search strategy:
+          1. Search with ?lang=<lang> (WPML-aware, preferred).
+          2. If nothing matches, retry without ?lang (catches posts not
+             registered in WPML's language table, or posts where WPML's
+             REST filter blocks the search result).
+        Both passes use per_page=100 to handle large archives where
+        WordPress's recency ranking would bury older posts.
+        """
+        base  = get_cred('wp_url', env).rstrip('/')
+        auth  = self._auth(env)
+        clean = self._clean_title(title)
+
+        # Build the list of lang values to try.  Always end with '' (no filter)
+        # as a fallback.  Deduplicate in case lang is already ''.
+        lang_tries = [lang, ''] if lang else ['']
+
         try:
-            # per_page=100: WordPress ranks by recency/relevance so older posts
-            # may not appear in the default top-20.  100 gives a wide safety net.
-            params = {'search': title, 'status': 'any', 'context': 'edit', 'per_page': 100}
-            if lang:
-                params['lang'] = lang
-            resp = requests.get(
-                f"{base}/wp-json/wp/v2/posts",
-                params=params,
-                auth=auth, timeout=30,
-            )
-            if resp.status_code == 401:
-                return ActionResult(False, "401 Unauthorized — check credentials.")
-            resp.raise_for_status()
-            for p in resp.json():
-                t = p.get('title', {}) or {}
-                # Match against raw (stored) OR rendered (displayed) title so that
-                # text copied from the browser or WP admin still resolves correctly.
-                if t.get('raw', '').strip() == title or t.get('rendered', '').strip() == title:
-                    return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
+            for lang_try in lang_tries:
+                params = {
+                    'search':   clean,
+                    'status':   'any',
+                    'context':  'edit',
+                    'per_page': 100,
+                }
+                if lang_try:
+                    params['lang'] = lang_try
+
+                resp = requests.get(
+                    f"{base}/wp-json/wp/v2/posts",
+                    params=params, auth=auth, timeout=30,
+                )
+                if resp.status_code == 401:
+                    return ActionResult(False, "401 Unauthorized — check credentials.")
+                resp.raise_for_status()
+
+                for p in resp.json():
+                    t = p.get('title', {}) or {}
+                    # Match against raw (stored) OR rendered (displayed) so
+                    # text copied from browser / WP admin resolves correctly.
+                    # Strip Cf chars from both sides for a fair comparison.
+                    if (self._clean_title(t.get('raw',      '')) == clean or
+                            self._clean_title(t.get('rendered', '')) == clean):
+                        return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
+
             return ActionResult(True, "Not found", data=None)
         except Exception as e:
             return ActionResult(False, f"Search failed: {e}")
@@ -248,6 +283,49 @@ class PostEventAction(BaseAction):
             return ActionResult(True, f"Image {media_id} permanently deleted.")
         except Exception as e:
             return ActionResult(False, f"Image delete failed: {e}")
+
+    def fetch_post(self, post_id: int, env: str = 'staging') -> ActionResult:
+        """Fetch an existing post and return its image URL and category IDs.
+
+        Used by the window to pre-populate the image thumbnail and category
+        checkboxes when the user types/pastes the title of an existing post.
+
+        Returns ActionResult with data = {
+            'media_url':  str   — source URL of the first embedded image, or ''
+            'categories': list  — WordPress category IDs assigned to this post
+        }
+        """
+        base = get_cred('wp_url', env).rstrip('/')
+        auth = self._auth(env)
+        try:
+            resp = requests.get(
+                f"{base}/wp-json/wp/v2/posts/{post_id}",
+                params={'context': 'edit'},
+                auth=auth, timeout=30,
+            )
+            if resp.status_code == 401:
+                return ActionResult(False, "401 Unauthorized — check credentials.")
+            resp.raise_for_status()
+            p = resp.json()
+
+            raw_content = (p.get('content', {}) or {}).get('raw', '')
+            m = re.search(r'<!-- wp:image \{"id":(\d+)', raw_content)
+            media_id  = int(m.group(1)) if m else 0
+            media_url = ''
+            if media_id:
+                m_resp = requests.get(
+                    f"{base}/wp-json/wp/v2/media/{media_id}",
+                    auth=auth, timeout=30,
+                )
+                if m_resp.status_code == 200:
+                    media_url = m_resp.json().get('source_url', '')
+
+            return ActionResult(True, "OK", data={
+                'media_url':  media_url,
+                'categories': p.get('categories', []),
+            })
+        except Exception as e:
+            return ActionResult(False, f"Fetch post failed: {e}")
 
     def duplicate_to_lang(self, source_post_id: int, target_lang: str,
                           env: str = 'staging') -> ActionResult:

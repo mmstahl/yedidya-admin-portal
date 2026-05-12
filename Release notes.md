@@ -2,6 +2,24 @@
 
 ---
 
+## v1.3.2 — 2026-05-12
+
+### Fixed
+- **`find_post` still failing for existing posts** — three compounding causes, all fixed:
+  1. *Unicode format characters*: browsers embed invisible RTL marks (U+200F etc.) in copied Hebrew text. WordPress never stores these. Added `_clean_title()` helper that strips all Unicode category-Cf characters before searching and comparing.
+  2. *WPML lang filter too strict*: when a post isn't registered in WPML's language table, `?lang=he` silently returns 0 results. `find_post` now tries with `?lang=` first, then retries without it as a fallback.
+  3. *Comparison now strips Cf chars from both sides* (input AND the stored raw/rendered title).
+
+### New
+- **Pre-populate fields from existing post**: when a title-check finds an existing post, the portal now fetches the post from WordPress and:
+  - Shows the post's current image as a thumbnail (labeled "existing post image").
+  - Pre-ticks the post's current categories on the matching side.
+  - Does not override a new image or categories the user has already selected in this session.
+- Added `fetch_post(post_id, env)` to `PostEventAction`.
+- Added `_cat_id_to_name` mapping populated alongside `_cat_vars` during the category fetch, enabling ID→name resolution for pre-population.
+
+---
+
 ## v1.3.1 — 2026-05-12
 
 ### Fixed
