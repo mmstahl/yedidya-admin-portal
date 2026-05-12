@@ -99,13 +99,18 @@ class PostEventAction(BaseAction):
     def _clean_title(s: str) -> str:
         """Normalise a title string for comparison.
 
-        Two transforms are applied so that user-typed text and the value
+        Three transforms are applied so that user-typed text and the value
         WordPress returns in the 'rendered' field compare as equal:
 
         1. HTML-entity decode  — WordPress stores the real character but
            returns 'rendered' with HTML entities, e.g. en-dash U+2013
            is returned as '&#8211;'.  html.unescape() reverses that.
-        2. Strip Unicode Cf chars — browsers embed invisible directional
+        2. Dash normalisation — WordPress's wptexturize() auto-converts
+           hyphen-minus (U+002D) to en-dash (U+2013) when saving titles.
+           All Unicode 'Pd' (dash punctuation) characters are mapped to
+           plain hyphen-minus so both sides compare equal regardless of
+           which dash variant is present.
+        3. Strip Unicode Cf chars — browsers embed invisible directional
            marks (U+200F RIGHT-TO-LEFT MARK etc.) in copied Hebrew text.
            WordPress never stores these, so they must be stripped before
            comparing.
@@ -113,6 +118,7 @@ class PostEventAction(BaseAction):
         import html
         import unicodedata
         s = html.unescape(s)
+        s = ''.join('-' if unicodedata.category(c) == 'Pd' else c for c in s)
         return ''.join(c for c in s if unicodedata.category(c) != 'Cf').strip()
 
     def find_post(self, title: str, env: str = 'staging', lang: str = '',
