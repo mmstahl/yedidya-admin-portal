@@ -1279,15 +1279,24 @@ class PostEventWindow(tk.Toplevel):
     # ==================================================================
 
     def _log_write(self, text):
-        self._log.configure(state="normal")
-        self._log.insert(tk.END, text)
-        self._log.see(tk.END)
-        self._log.configure(state="disabled")
+        # Guard: background threads schedule self.after(0, _log_write, ...)
+        # which can fire after the window has been destroyed (e.g. user clicked
+        # Cancel while a title-check was still in flight).  Silently ignore.
+        try:
+            self._log.configure(state="normal")
+            self._log.insert(tk.END, text)
+            self._log.see(tk.END)
+            self._log.configure(state="disabled")
+        except tk.TclError:
+            pass
 
     def _log_clear(self):
-        self._log.configure(state="normal")
-        self._log.delete("1.0", tk.END)
-        self._log.configure(state="disabled")
+        try:
+            self._log.configure(state="normal")
+            self._log.delete("1.0", tk.END)
+            self._log.configure(state="disabled")
+        except tk.TclError:
+            pass
 
     def _center(self, parent):
         self.update_idletasks()

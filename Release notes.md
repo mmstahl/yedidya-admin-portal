@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.10 — 2026-05-12
+
+### Fixed
+- **TclError flood on Cancel**: background title-check threads (and other async callbacks) remained in flight after the window was closed. When their `self.after(0, _log_write, …)` callbacks fired on the main thread, `_log_write` tried to access the already-destroyed Text widget and raised `TclError: invalid command name`. Fixed by wrapping `_log_write` and `_log_clear` in `try/except TclError` — same pattern already used by all other post-close callbacks in the window. Errors are now silently discarded.
+
+---
+
 ## v1.3.9 — 2026-05-12
 
 ### Changed
