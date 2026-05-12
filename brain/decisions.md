@@ -102,7 +102,7 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 - **MINOR** — new capability added; bump requires user approval before implementation
 - **MAJOR** — structural overhaul or breaking workflow change; bump requires user approval
 
-**Process:** On every change, Claude must (1) bump PATCH in `version.py`, (2) commit and create a Git tag `vMAJOR.MINOR.PATCH`, (3) add an entry to `Release notes.md` at the project root.
+**Process:** On every change, Claude must (1) bump PATCH in `version.py`, (2) add an entry to `Release notes.md` at the project root, (3) commit and create a Git tag `vMAJOR.MINOR.PATCH`.
 
 ---
 
