@@ -94,6 +94,18 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 
 ---
 
+## 2026-05-12 — Versioning: MAJOR.MINOR.PATCH, patch auto-bumped on every change
+
+**Decision:** The portal carries a version number in `portal/version.py`, displayed in the status bar (bottom-right, gray). Format is `MAJOR.MINOR.PATCH`.
+
+- **PATCH** — bumped automatically on every code change (bug fix, UI tweak, wording)
+- **MINOR** — new capability added; bump requires user approval before implementation
+- **MAJOR** — structural overhaul or breaking workflow change; bump requires user approval
+
+**Process:** On every change, Claude must (1) bump PATCH in `version.py`, (2) commit and create a Git tag `vMAJOR.MINOR.PATCH`, (3) add an entry to `Release notes.md` at the project root.
+
+---
+
 ## 2026-03-22 — GDPR plugin: standalone, no WooCommerce core modifications
 
 **Decision:** GDPR erasure is implemented as a standalone plugin (`yedidya-gdpr-erase`) that calls WooCommerce classes. WooCommerce files are never modified.
