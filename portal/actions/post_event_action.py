@@ -140,10 +140,13 @@ class PostEventAction(BaseAction):
 
         try:
             for lang_try in lang_tries:
+                # NOTE: do NOT include status=any or context=edit.
+                # WordPress.com staging silently returns [] when context=edit
+                # is requested by a user without edit_others_posts — the API
+                # returns HTTP 200 with an empty array instead of a 403.
+                # Published posts are all we need for find/delete purposes.
                 params = {
                     'search':   clean,
-                    'status':   'any',
-                    'context':  'edit',
                     'per_page': 100,
                 }
                 if lang_try:

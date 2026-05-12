@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.4 — 2026-05-12
+
+### Fixed
+- **Root cause of `find_post` always returning empty**: the search request included `?status=any&context=edit`. WordPress.com staging silently returns `HTTP 200 []` (empty array) when `context=edit` is requested by a credential that lacks `edit_others_posts` — no 403, no error, just zero results. Removed both `status=any` and `context=edit` from `find_post`. Published posts are all that's needed for title-check and delete, and `rendered` titles are sufficient for matching.
+
+---
+
 ## v1.3.3 — 2026-05-12
 
 ### Diagnostic
