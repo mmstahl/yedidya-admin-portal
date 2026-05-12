@@ -496,7 +496,11 @@ class PostEventWindow(tk.Toplevel):
         ).start()
 
     def _run_check_title(self, lang, title):
-        result = self.action.find_post(title=title, env=self.env, lang=lang)
+        label = 'Hebrew' if lang == 'he' else 'English'
+        result = self.action.find_post(
+            title=title, env=self.env, lang=lang,
+            log_cb=lambda msg: self.after(0, self._log_write, f"[{label} title-check] {msg}"),
+        )
         post_id = result.data if (result.success and result.data is not None) else None
         self.after(0, self._apply_title_check_result, lang, title, post_id)
 
@@ -1192,14 +1196,23 @@ class PostEventWindow(tk.Toplevel):
         known_ids = known_ids or {}
         results = {}
         for lang, title in (('he', title_he), ('en', title_en)):
+            label = 'Hebrew' if lang == 'he' else 'English'
             if not title:
                 results[lang] = {'post': None, 'media': None}
                 continue
             # Prefer the ID already resolved by the title-check; only call
             # find_post() when we genuinely don't know the ID yet.
             post_id = known_ids.get(lang)
-            if post_id is None:
-                find = self.action.find_post(title=title, env=self.env, lang=lang)
+            if post_id is not None:
+                self.after(0, self._log_write,
+                           f"[{label}] Using cached post ID {post_id} (from title-check).\n")
+            else:
+                self.after(0, self._log_write,
+                           f"[{label}] No cached ID — searching by title…\n")
+                find = self.action.find_post(
+                    title=title, env=self.env, lang=lang,
+                    log_cb=lambda msg, l=label: self.after(0, self._log_write, f"[{l}] {msg}"),
+                )
                 if not find.success:
                     results[lang] = {'post': find, 'media': None}
                     continue

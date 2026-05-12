@@ -2,6 +2,18 @@
 
 ---
 
+## v1.3.3 — 2026-05-12
+
+### Diagnostic
+- Added detailed logging to `find_post` (and the title-check flow) so every search attempt is visible in the window's log panel:
+  - Original vs cleaned title (shows if invisible Unicode chars were stripped)
+  - Full URL + params for each search pass
+  - HTTP status code and result count
+  - Each returned post's ID, raw title, and whether it matched
+  - Which pass (with/without `?lang=`) succeeded or failed
+
+---
+
 ## v1.3.2 — 2026-05-12
 
 ### Fixed

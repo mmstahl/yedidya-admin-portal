@@ -107,8 +107,12 @@ class PostEventAction(BaseAction):
         import unicodedata
         return ''.join(c for c in s if unicodedata.category(c) != 'Cf').strip()
 
-    def find_post(self, title: str, env: str = 'staging', lang: str = '') -> ActionResult:
+    def find_post(self, title: str, env: str = 'staging', lang: str = '',
+                  log_cb=None) -> ActionResult:
         """Return ActionResult with data=post_id (int) if found, data=None if not.
+
+        log_cb: optional callable(str) — receives diagnostic lines so the
+                caller can surface them in the UI log.  Pass None to suppress.
 
         Search strategy:
           1. Search with ?lang=<lang> (WPML-aware, preferred).
@@ -118,9 +122,17 @@ class PostEventAction(BaseAction):
         Both passes use per_page=100 to handle large archives where
         WordPress's recency ranking would bury older posts.
         """
+        def _log(msg):
+            if log_cb:
+                log_cb(f"[find_post] {msg}\n")
+
         base  = get_cred('wp_url', env).rstrip('/')
         auth  = self._auth(env)
         clean = self._clean_title(title)
+
+        _log(f"title (original) : {repr(title)}")
+        _log(f"title (cleaned)  : {repr(clean)}")
+        _log(f"lang hint        : {repr(lang)}")
 
         # Build the list of lang values to try.  Always end with '' (no filter)
         # as a fallback.  Deduplicate in case lang is already ''.
@@ -137,25 +149,37 @@ class PostEventAction(BaseAction):
                 if lang_try:
                     params['lang'] = lang_try
 
-                resp = requests.get(
-                    f"{base}/wp-json/wp/v2/posts",
-                    params=params, auth=auth, timeout=30,
-                )
+                url = f"{base}/wp-json/wp/v2/posts"
+                _log(f"GET {url}  params={params}")
+
+                resp = requests.get(url, params=params, auth=auth, timeout=30)
+                _log(f"HTTP {resp.status_code}  ({len(resp.content)} bytes)")
+
                 if resp.status_code == 401:
                     return ActionResult(False, "401 Unauthorized — check credentials.")
                 resp.raise_for_status()
 
-                for p in resp.json():
-                    t = p.get('title', {}) or {}
-                    # Match against raw (stored) OR rendered (displayed) so
-                    # text copied from browser / WP admin resolves correctly.
-                    # Strip Cf chars from both sides for a fair comparison.
-                    if (self._clean_title(t.get('raw',      '')) == clean or
-                            self._clean_title(t.get('rendered', '')) == clean):
+                posts = resp.json()
+                _log(f"results returned : {len(posts)}")
+
+                for p in posts:
+                    t         = p.get('title', {}) or {}
+                    raw       = t.get('raw',      '')
+                    rendered  = t.get('rendered', '')
+                    raw_c     = self._clean_title(raw)
+                    rendered_c= self._clean_title(rendered)
+                    _log(f"  post {p['id']:>7}  raw={repr(raw[:60])}  "
+                         f"match_raw={raw_c==clean}  match_rendered={rendered_c==clean}")
+                    if raw_c == clean or rendered_c == clean:
+                        _log(f"  → MATCH on post {p['id']}")
                         return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
 
+                _log(f"no match in this pass (lang_try={repr(lang_try)})")
+
+            _log("exhausted all passes — not found")
             return ActionResult(True, "Not found", data=None)
         except Exception as e:
+            _log(f"exception: {e}")
             return ActionResult(False, f"Search failed: {e}")
 
     def delete(self, post_id: int, env: str = 'staging') -> ActionResult:
