@@ -47,14 +47,23 @@ except ImportError:
     _PIL_AVAILABLE = False
 
 class PostEventWindow(tk.Toplevel):
-    def __init__(self, parent, action: PostEventAction, env='staging'):
+    def __init__(self, parent, action: PostEventAction, env='staging',
+                 verbose_var=None):
         super().__init__(parent)
         self.title(f"Post/Update Event — {env.capitalize()}")
         self.resizable(True, True)
         self.grab_set()
-        self.action       = action
-        self.env          = env
-        self._verbose_var = tk.BooleanVar(value=False)
+        self.action = action
+        self.env    = env
+
+        # Use the shared verbose var from MainWindow (so the checkbox state
+        # is set before this window opens and starts its background checks).
+        # Fall back to a local var if not provided (e.g. in tests).
+        self._verbose_var = verbose_var if verbose_var is not None \
+            else tk.BooleanVar(value=False)
+
+        # Counter for in-flight title-checks; used to update the status bar.
+        self._pending_checks = 0
 
         # Per-language image state
         self._image_path     = {'he': None, 'en': None}
@@ -148,19 +157,14 @@ class PostEventWindow(tk.Toplevel):
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
         log_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=4)
         log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(1, weight=1)
-
-        # Verbose checkbox sits in the top-right of the log frame.
-        ttk.Checkbutton(
-            log_frame, text="Verbose logging", variable=self._verbose_var,
-        ).grid(row=0, column=0, columnspan=2, sticky="e", pady=(0, 4))
+        log_frame.rowconfigure(0, weight=1)
 
         self._log = tk.Text(log_frame, height=12, state="disabled",
                             font=("Consolas", 9), bg="#f8f8f8", relief="flat")
         scrollbar = ttk.Scrollbar(log_frame, command=self._log.yview)
         self._log.configure(yscrollcommand=scrollbar.set)
-        self._log.grid(row=1, column=0, sticky="nsew")
-        scrollbar.grid(row=1, column=1, sticky="ns")
+        self._log.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
 
         # ── Bottom bar ─────────────────────────────────────────────────
         bottom = ttk.Frame(self)
@@ -170,9 +174,7 @@ class PostEventWindow(tk.Toplevel):
         self._delete_btn = ttk.Button(bottom, text="Delete Post", command=self._on_delete)
         self._delete_btn.grid(row=0, column=0, sticky="w")
 
-        self._status_var = tk.StringVar(
-            value="Select a template, fill the Hebrew and English fields, then click Save."
-        )
+        self._status_var = tk.StringVar(value="Initialising…")
         ttk.Label(bottom, textvariable=self._status_var,
                   foreground="gray").grid(row=0, column=1, sticky="w", padx=(12, 0))
 
@@ -498,6 +500,9 @@ class PostEventWindow(tk.Toplevel):
             self._existing_post_id[lang] = None
             self._refresh_update_existing_state(lang)
             return
+        label = "Hebrew" if lang == 'he' else "English"
+        self._pending_checks += 1
+        self._status_var.set(f"Checking for existing {label} post…")
         threading.Thread(
             target=self._run_check_title, args=(lang, title), daemon=True,
         ).start()
@@ -516,12 +521,19 @@ class PostEventWindow(tk.Toplevel):
 
     def _apply_title_check_result(self, lang, checked_title, post_id):
         try:
+            self._pending_checks = max(0, self._pending_checks - 1)
             # Make sure the title hasn't changed since this check was kicked off.
             current = (self._title_he_var if lang == 'he' else self._title_en_var).get().strip()
             if current != checked_title:
+                if self._pending_checks == 0:
+                    self._status_var.set("Ready.")
                 return
             self._existing_post_id[lang] = post_id
             self._refresh_update_existing_state(lang)
+            if self._pending_checks == 0:
+                self._status_var.set(
+                    f"Existing post found (#{post_id})." if post_id else "Ready."
+                )
             # Pre-populate image thumbnail and categories from the existing post.
             if post_id is not None:
                 threading.Thread(

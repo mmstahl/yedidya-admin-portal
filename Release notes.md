@@ -2,6 +2,18 @@
 
 ---
 
+## v1.3.11 — 2026-05-12
+
+### Changed
+- **Verbose logging checkbox moved to main portal window** (bottom status bar, between status text and version number). It is now set before any sub-window opens, so the startup title-check in Post/Update Event respects it immediately. The setting is persisted across sessions.
+- **Removed** verbose checkbox from the Post/Update Event log panel.
+- **Status bar now reflects title-check progress** in Post/Update Event:
+  - Opens with "Initialising…"
+  - While a background title-check is running: "Checking for existing Hebrew/English post…"
+  - When all checks complete: "Existing post found (#XXXX)." or "Ready."
+
+---
+
 ## v1.3.10 — 2026-05-12
 
 ### Fixed

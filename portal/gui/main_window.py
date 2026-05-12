@@ -31,6 +31,12 @@ class MainWindow(tk.Tk):
         self._env = tk.StringVar(value=saved_env if saved_env in ('staging', 'production') else 'staging')
         self._env.trace_add('write', self._on_env_change)
 
+        # Verbose logging: persisted, default off.
+        # Passed into sub-windows so it is set before they open and start
+        # background work (e.g. the startup title-check in Post/Update Event).
+        self._verbose_var = tk.BooleanVar(value=(dm.get('portal', 'verbose') == 'true'))
+        self._verbose_var.trace_add('write', self._on_verbose_change)
+
         self._actions = [MembersListAction(), DeleteUsersAction(), DbExtractAction(), PostEventAction()]
         self._build()
         self._check_credentials()
@@ -90,8 +96,11 @@ class MainWindow(tk.Tk):
         self._status_var = tk.StringVar(value="Ready")
         ttk.Label(status_bar, textvariable=self._status_var, foreground="gray",
                   padding=(12, 4)).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(status_bar, text="Verbose logging",
+                        variable=self._verbose_var).grid(row=0, column=1,
+                                                         sticky="e", padx=(0, 8))
         ttk.Label(status_bar, text=f"v{VERSION}", foreground="gray",
-                  padding=(0, 4, 12, 4)).grid(row=0, column=1, sticky="e")
+                  padding=(0, 4, 12, 4)).grid(row=0, column=2, sticky="e")
 
     def _action_row(self, parent, row, action):
         frame = ttk.Frame(parent, padding=(0, 4))
@@ -112,6 +121,9 @@ class MainWindow(tk.Tk):
     # ------------------------------------------------------------------
     # Environment
     # ------------------------------------------------------------------
+
+    def _on_verbose_change(self, *_):
+        dm.set_default('portal', 'verbose', 'true' if self._verbose_var.get() else 'false')
 
     def _on_env_change(self, *_):
         env = self._env.get()
@@ -160,4 +172,4 @@ class MainWindow(tk.Tk):
         elif isinstance(action, DbExtractAction):
             DbExtractWindow(self, action, env=env)
         elif isinstance(action, PostEventAction):
-            PostEventWindow(self, action, env=env)
+            PostEventWindow(self, action, env=env, verbose_var=self._verbose_var)
