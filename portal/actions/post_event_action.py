@@ -95,22 +95,52 @@ class PostEventAction(BaseAction):
             )
         return resp
 
+    # Typographic → ASCII mapping for wptexturize() substitutions.
+    # WordPress's wptexturize() converts several ASCII sequences to typographic
+    # Unicode characters when rendering titles.  We normalise both the user's
+    # input and the WordPress-returned 'rendered' title through the same table
+    # so they compare equal regardless of which variant is present.
+    _TYPOGRAPHIC_MAP = {
+        # Smart single quotes / apostrophes → U+0027 APOSTROPHE
+        '‘': "'",   # LEFT SINGLE QUOTATION MARK   (opening ')
+        '’': "'",   # RIGHT SINGLE QUOTATION MARK  (closing ' / apostrophe)
+        '‚': "'",   # SINGLE LOW-9 QUOTATION MARK  (‚)
+        '‛': "'",   # SINGLE HIGH-REVERSED-9 QUOTATION MARK (‛)
+        '′': "'",   # PRIME                         (′ feet symbol)
+        '‵': "'",   # REVERSED PRIME                (‵)
+        # Smart double quotes → U+0022 QUOTATION MARK
+        '“': '"',   # LEFT DOUBLE QUOTATION MARK   (opening ")
+        '”': '"',   # RIGHT DOUBLE QUOTATION MARK  (closing ")
+        '„': '"',   # DOUBLE LOW-9 QUOTATION MARK  („)
+        '‟': '"',   # DOUBLE HIGH-REVERSED-9 QUOTATION MARK (‟)
+        '″': '"',   # DOUBLE PRIME                  (″ inches symbol)
+        '‶': '"',   # REVERSED DOUBLE PRIME         (‶)
+        # Ellipsis → three full stops
+        '…': '...',  # HORIZONTAL ELLIPSIS (…)
+        # Non-breaking spaces → regular space
+        ' ': ' ',   # NO-BREAK SPACE
+        ' ': ' ',   # NARROW NO-BREAK SPACE
+    }
+
     @staticmethod
     def _clean_title(s: str) -> str:
         """Normalise a title string for comparison.
 
-        Three transforms are applied so that user-typed text and the value
+        Four transforms are applied so that user-typed text and the value
         WordPress returns in the 'rendered' field compare as equal:
 
         1. HTML-entity decode  — WordPress stores the real character but
            returns 'rendered' with HTML entities, e.g. en-dash U+2013
            is returned as '&#8211;'.  html.unescape() reverses that.
-        2. Dash normalisation — WordPress's wptexturize() auto-converts
-           hyphen-minus (U+002D) to en-dash (U+2013) when saving titles.
-           All Unicode 'Pd' (dash punctuation) characters are mapped to
-           plain hyphen-minus so both sides compare equal regardless of
-           which dash variant is present.
-        3. Strip Unicode Cf chars — browsers embed invisible directional
+        2. Typographic-character normalisation — WordPress's wptexturize()
+           converts several ASCII sequences to typographic Unicode characters
+           when saving titles: smart quotes (‘–”), ellipsis (…),
+           non-breaking spaces ( ), etc.  All are mapped back to their
+           plain ASCII equivalents via _TYPOGRAPHIC_MAP.
+        3. Dash normalisation — wptexturize() also converts ' - ' and '--'
+           to en-dash / em-dash.  All Unicode 'Pd' (dash punctuation) chars
+           are mapped to plain hyphen-minus.
+        4. Strip Unicode Cf chars — browsers embed invisible directional
            marks (U+200F RIGHT-TO-LEFT MARK etc.) in copied Hebrew text.
            WordPress never stores these, so they must be stripped before
            comparing.
@@ -118,6 +148,7 @@ class PostEventAction(BaseAction):
         import html
         import unicodedata
         s = html.unescape(s)
+        s = ''.join(PostEventAction._TYPOGRAPHIC_MAP.get(c, c) for c in s)
         s = ''.join('-' if unicodedata.category(c) == 'Pd' else c for c in s)
         return ''.join(c for c in s if unicodedata.category(c) != 'Cf').strip()
 
