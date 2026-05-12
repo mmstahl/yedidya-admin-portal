@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.8 — 2026-05-12
+
+### Changed
+- `find_post` log is now quiet by default — only logs page-level summaries and matched posts. The verbose per-post dump (which flooded the log during normal use) is removed now that the root causes are resolved.
+
+---
+
 ## v1.3.7 — 2026-05-12
 
 ### Diagnostic

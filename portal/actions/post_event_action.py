@@ -178,13 +178,8 @@ class PostEventAction(BaseAction):
                         raw_rendered = t.get('rendered', '')
                         decoded      = self._clean_title(raw_rendered)
                         is_match     = decoded == clean
-                        _log(f"  post {p['id']:>7}  "
-                             f"wp_raw={repr(raw_rendered[:60])}  "
-                             f"decoded={repr(decoded[:60])}  "
-                             f"want={repr(clean[:60])}  "
-                             f"match={is_match}")
                         if is_match:
-                            _log(f"  → MATCH")
+                            _log(f"  → MATCH  post {p['id']}  decoded={repr(decoded[:70])}")
                             return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
 
                     if page >= total_pages or not posts:
