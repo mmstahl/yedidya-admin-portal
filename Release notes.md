@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.5 — 2026-05-12
+
+### Fixed
+- **`find_post` still returning empty**: the `?search=` REST API parameter is broken on WordPress.com staging — it returns `HTTP 200 []` for every query regardless of content. Removed `?search=` entirely. `find_post` now fetches posts page-by-page (`per_page=100`) and matches the title locally. Handles pagination via the `X-WP-TotalPages` response header.
+
+---
+
 ## v1.3.4 — 2026-05-12
 
 ### Fixed

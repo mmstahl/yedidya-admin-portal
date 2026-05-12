@@ -138,46 +138,47 @@ class PostEventAction(BaseAction):
         # as a fallback.  Deduplicate in case lang is already ''.
         lang_tries = [lang, ''] if lang else ['']
 
+        # NOTE: ?search= is broken on WordPress.com staging — it returns HTTP 200
+        # with an empty array [] regardless of the query.  We fetch posts
+        # page-by-page and match the title locally instead.
         try:
             for lang_try in lang_tries:
-                # NOTE: do NOT include status=any or context=edit.
-                # WordPress.com staging silently returns [] when context=edit
-                # is requested by a user without edit_others_posts — the API
-                # returns HTTP 200 with an empty array instead of a 403.
-                # Published posts are all we need for find/delete purposes.
-                params = {
-                    'search':   clean,
-                    'per_page': 100,
-                }
-                if lang_try:
-                    params['lang'] = lang_try
+                _log(f"--- pass lang={repr(lang_try)} ---")
+                page = 1
+                while True:
+                    params = {'per_page': 100, 'page': page}
+                    if lang_try:
+                        params['lang'] = lang_try
 
-                url = f"{base}/wp-json/wp/v2/posts"
-                _log(f"GET {url}  params={params}")
+                    url = f"{base}/wp-json/wp/v2/posts"
+                    _log(f"GET {url}  params={params}")
 
-                resp = requests.get(url, params=params, auth=auth, timeout=30)
-                _log(f"HTTP {resp.status_code}  ({len(resp.content)} bytes)")
+                    resp = requests.get(url, params=params, auth=auth, timeout=30)
+                    _log(f"HTTP {resp.status_code}  ({len(resp.content)} bytes)")
 
-                if resp.status_code == 401:
-                    return ActionResult(False, "401 Unauthorized — check credentials.")
-                resp.raise_for_status()
+                    if resp.status_code == 401:
+                        return ActionResult(False, "401 Unauthorized — check credentials.")
+                    resp.raise_for_status()
 
-                posts = resp.json()
-                _log(f"results returned : {len(posts)}")
+                    posts      = resp.json()
+                    total_pages = max(int(resp.headers.get('X-WP-TotalPages', 1)), 1)
+                    total_posts = resp.headers.get('X-WP-Total', '?')
+                    _log(f"page {page}/{total_pages}  posts this page: {len(posts)}  total: {total_posts}")
 
-                for p in posts:
-                    t         = p.get('title', {}) or {}
-                    raw       = t.get('raw',      '')
-                    rendered  = t.get('rendered', '')
-                    raw_c     = self._clean_title(raw)
-                    rendered_c= self._clean_title(rendered)
-                    _log(f"  post {p['id']:>7}  raw={repr(raw[:60])}  "
-                         f"match_raw={raw_c==clean}  match_rendered={rendered_c==clean}")
-                    if raw_c == clean or rendered_c == clean:
-                        _log(f"  → MATCH on post {p['id']}")
-                        return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
+                    for p in posts:
+                        t          = p.get('title', {}) or {}
+                        rendered   = self._clean_title(t.get('rendered', ''))
+                        is_match   = rendered == clean
+                        _log(f"  post {p['id']:>7}  rendered={repr(t.get('rendered','')[:70])}  match={is_match}")
+                        if is_match:
+                            _log(f"  → MATCH")
+                            return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
 
-                _log(f"no match in this pass (lang_try={repr(lang_try)})")
+                    if page >= total_pages or not posts:
+                        break
+                    page += 1
+
+                _log(f"no match in this pass")
 
             _log("exhausted all passes — not found")
             return ActionResult(True, "Not found", data=None)
