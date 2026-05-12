@@ -2,6 +2,16 @@
 
 ---
 
+## v1.3.1 — 2026-05-12
+
+### Fixed
+- **Delete post: "No post found with title"** when deleting a post that was not created in the current session.
+  - Root cause 1: The delete flow was ignoring the post ID already resolved by the background title-check (`_existing_post_id`), forcing an unnecessary second `find_post()` call that could fail.
+  - Root cause 2: `find_post()` searched with `per_page=20`. WordPress ranks results by recency, so older posts could fall outside the first 20 results and never be matched.
+  - Fix: `_on_delete()` now passes already-known post IDs to the delete thread; `find_post()` uses `per_page=100` and matches against both `raw` and `rendered` titles.
+
+---
+
 ## v1.3.0 — 2026-05-12
 
 ### New

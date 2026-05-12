@@ -100,7 +100,9 @@ class PostEventAction(BaseAction):
         base = get_cred('wp_url', env).rstrip('/')
         auth = self._auth(env)
         try:
-            params = {'search': title, 'status': 'any', 'context': 'edit', 'per_page': 20}
+            # per_page=100: WordPress ranks by recency/relevance so older posts
+            # may not appear in the default top-20.  100 gives a wide safety net.
+            params = {'search': title, 'status': 'any', 'context': 'edit', 'per_page': 100}
             if lang:
                 params['lang'] = lang
             resp = requests.get(
@@ -112,7 +114,10 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, "401 Unauthorized — check credentials.")
             resp.raise_for_status()
             for p in resp.json():
-                if p.get('title', {}).get('raw', '').strip() == title:
+                t = p.get('title', {}) or {}
+                # Match against raw (stored) OR rendered (displayed) title so that
+                # text copied from the browser or WP admin still resolves correctly.
+                if t.get('raw', '').strip() == title or t.get('rendered', '').strip() == title:
                     return ActionResult(True, f"Found post ID {p['id']}", data=p['id'])
             return ActionResult(True, "Not found", data=None)
         except Exception as e:

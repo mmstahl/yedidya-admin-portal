@@ -1044,12 +1044,20 @@ class PostEventWindow(tk.Toplevel):
         elif choice == 'en':
             title_he = ''
 
+        # Use any post IDs already known from the title-check or locked checkbox
+        # so we skip a redundant find_post() call (which can fail for older posts
+        # due to WordPress search ranking — see decisions / bug fix 2026-05-12).
+        known_ids = {
+            lang: self._locked_post_id[lang] or self._existing_post_id[lang]
+            for lang in ('he', 'en')
+        }
+
         self._save_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
         self._status_var.set("Deleting…")
         threading.Thread(
             target=self._run_delete_both,
-            args=(title_he, title_en, delete_image),
+            args=(title_he, title_en, delete_image, known_ids),
             daemon=True,
         ).start()
 
@@ -1095,17 +1103,22 @@ class PostEventWindow(tk.Toplevel):
             return None, False
         return result.get(), delete_image_var.get()
 
-    def _run_delete_both(self, title_he, title_en, delete_image):
+    def _run_delete_both(self, title_he, title_en, delete_image, known_ids=None):
+        known_ids = known_ids or {}
         results = {}
         for lang, title in (('he', title_he), ('en', title_en)):
             if not title:
                 results[lang] = {'post': None, 'media': None}
                 continue
-            find = self.action.find_post(title=title, env=self.env, lang=lang)
-            if not find.success:
-                results[lang] = {'post': find, 'media': None}
-                continue
-            post_id = find.data
+            # Prefer the ID already resolved by the title-check; only call
+            # find_post() when we genuinely don't know the ID yet.
+            post_id = known_ids.get(lang)
+            if post_id is None:
+                find = self.action.find_post(title=title, env=self.env, lang=lang)
+                if not find.success:
+                    results[lang] = {'post': find, 'media': None}
+                    continue
+                post_id = find.data
             if post_id is None:
                 results[lang] = {'post': None, 'media': None}
                 continue
