@@ -529,6 +529,12 @@ class PostEventWindow(tk.Toplevel):
                     self._status_var.set("Ready.")
                 return
             self._existing_post_id[lang] = post_id
+            # Auto-check and lock the "Update existing post" checkbox whenever a
+            # matching post is found, so the user doesn't have to do it manually.
+            # The save flow shows a confirmation dialog before proceeding.
+            if post_id is not None:
+                self._update_existing_var[lang].set(True)
+                self._locked_post_id[lang] = post_id
             self._refresh_update_existing_state(lang)
             if self._pending_checks == 0:
                 self._status_var.set(
@@ -869,6 +875,25 @@ class PostEventWindow(tk.Toplevel):
                 parent=self,
             )
             return
+
+        # ── Confirm updates ────────────────────────────────────────────────
+        # If any side is about to update an existing post, ask the user to
+        # confirm — so an accidental Save doesn't silently overwrite content.
+        update_lines = []
+        for lang, label, data, mode, target in (
+            ('he', 'Hebrew',  he_data, he_mode, he_target),
+            ('en', 'English', en_data, en_mode, en_target),
+        ):
+            if data['title'] and mode == 'update':
+                update_lines.append(f'  {label}: "{data["title"]}" (post #{target})')
+        if update_lines:
+            msg = (
+                "You are about to UPDATE the following existing post(s):\n\n"
+                + "\n".join(update_lines)
+                + "\n\nIs this what you wanted?"
+            )
+            if not messagebox.askyesno("Confirm update", msg, parent=self):
+                return
 
         self._save_defaults(template, {'he': he_data, 'en': en_data})
         self._save_btn.configure(state="disabled")
