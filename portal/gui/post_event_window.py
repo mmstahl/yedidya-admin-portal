@@ -62,8 +62,14 @@ class PostEventWindow(tk.Toplevel):
         self._verbose_var = verbose_var if verbose_var is not None \
             else tk.BooleanVar(value=False)
 
-        # Counter for in-flight title-checks; used to update the status bar.
+        # Counter for in-flight title-checks; used to update the status bar
+        # and to lock / unlock input fields while a check is running.
         self._pending_checks = 0
+
+        # List of (widget, state_when_locked, state_when_unlocked) tuples.
+        # Populated during _build / _build_lang_panel so that _set_ui_locked()
+        # can iterate it without needing to know the widget hierarchy.
+        self._lockable_widgets = []
 
         # Per-language image state
         self._image_path     = {'he': None, 'en': None}
@@ -135,6 +141,7 @@ class PostEventWindow(tk.Toplevel):
         )
         self._template_cb.grid(row=0, column=1, sticky="w")
         self._template_cb.bind("<<ComboboxSelected>>", self._on_template_change)
+        self._lockable_widgets.append((self._template_cb, 'disabled', 'readonly'))
         ttk.Button(tpl_row, text="Show template info",
                    command=self._on_show_template_info,
                    ).grid(row=0, column=2, sticky="e", padx=(8, 0))
@@ -173,6 +180,7 @@ class PostEventWindow(tk.Toplevel):
 
         self._delete_btn = ttk.Button(bottom, text="Delete Post", command=self._on_delete)
         self._delete_btn.grid(row=0, column=0, sticky="w")
+        self._lockable_widgets.append((self._delete_btn, 'disabled', 'normal'))
 
         self._status_var = tk.StringVar(value="Initialising…")
         ttk.Label(bottom, textvariable=self._status_var,
@@ -183,6 +191,7 @@ class PostEventWindow(tk.Toplevel):
         ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="right", padx=(4, 0))
         self._save_btn = ttk.Button(btn_row, text="Save", command=self._on_save)
         self._save_btn.pack(side="right")
+        self._lockable_widgets.append((self._save_btn, 'disabled', 'normal'))
 
     def _build_lang_panel(self, parent, lang):
         """Build one language column (mirrored layout for Hebrew and English)."""
@@ -198,6 +207,7 @@ class PostEventWindow(tk.Toplevel):
         title_entry.grid(row=0, column=1, sticky="ew", **pad)
         title_var.trace_add('write', lambda *_, l=lang: self._on_title_edited(l))
         title_entry.bind("<FocusOut>", lambda _, l=lang: self._check_title_exists(l))
+        self._lockable_widgets.append((title_entry, 'readonly', 'normal'))
         if is_he:
             self._title_he_var, self._title_he_entry = title_var, title_entry
         else:
@@ -223,11 +233,12 @@ class PostEventWindow(tk.Toplevel):
         date_entry = ttk.Entry(parent, textvariable=date_var,
                                justify='right' if is_he else 'left')
         date_entry.grid(row=2, column=1, sticky="ew", **pad)
+        self._lockable_widgets.append((date_entry, 'readonly', 'normal'))
         self._field_rows[lang]['date'] = (lbl_date, date_entry)
         if is_he:
             self._date_he_var, self._date_he_entry = date_var, date_entry
         else:
-            self._date_en_var = date_var
+            self._date_en_var, self._date_en_entry = date_var, date_entry
 
         # ── Description ──────────────────────────────────────────────
         lbl_desc = ttk.Label(parent, text="Description:")
@@ -240,6 +251,7 @@ class PostEventWindow(tk.Toplevel):
             desc_text.grid(row=3, column=1, sticky="ew", **pad)
             desc_grid = desc_text
             self._desc_en_text = desc_text
+        self._lockable_widgets.append((desc_text, 'disabled', 'normal'))
         self._field_rows[lang]['description'] = (lbl_desc, desc_grid)
 
         # ── Image ────────────────────────────────────────────────────
@@ -251,12 +263,16 @@ class PostEventWindow(tk.Toplevel):
         img_path_var = tk.StringVar(value="No image selected")
         ttk.Entry(img_frame, textvariable=img_path_var,
                   state="readonly").grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ttk.Button(img_frame, text="Browse…",
-                   command=lambda l=lang: self._browse_image(l)).grid(row=0, column=1)
-        ttk.Button(img_frame, text="Paste from clipboard",
-                   command=lambda l=lang: self._paste_image(l),
-                   state="normal" if _PIL_AVAILABLE else "disabled",
-                   ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        browse_btn = ttk.Button(img_frame, text="Browse…",
+                                command=lambda l=lang: self._browse_image(l))
+        browse_btn.grid(row=0, column=1)
+        self._lockable_widgets.append((browse_btn, 'disabled', 'normal'))
+        paste_normal = "normal" if _PIL_AVAILABLE else "disabled"
+        paste_btn = ttk.Button(img_frame, text="Paste from clipboard",
+                               command=lambda l=lang: self._paste_image(l),
+                               state=paste_normal)
+        paste_btn.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self._lockable_widgets.append((paste_btn, 'disabled', paste_normal))
 
         thumb_label = ttk.Label(parent)
         thumb_label.grid(row=5, column=1, sticky="w", padx=6, pady=(0, 3))
@@ -278,6 +294,7 @@ class PostEventWindow(tk.Toplevel):
         cap_text = tk.Text(parent, height=3, wrap="word", font=("Segoe UI", 9))
         cap_text.grid(row=6, column=1, sticky="ew", **pad)
         cap_grid = cap_text
+        self._lockable_widgets.append((cap_text, 'disabled', 'normal'))
         if is_he:
             self._configure_rtl_text(cap_text)
             self._caption_he_text = cap_text
@@ -483,6 +500,50 @@ class PostEventWindow(tk.Toplevel):
     # Title-edited / title-check / update-existing checkbox
     # ==================================================================
 
+    def _set_ui_locked(self, locked: bool):
+        """Disable / re-enable all input widgets while a title-check is running.
+
+        Prevents the user from editing fields mid-search, which would create
+        a race between the running check and the updated field values.
+        Called on the main thread only.
+        """
+        for widget, lock_state, unlock_state in self._lockable_widgets:
+            try:
+                widget.configure(state=lock_state if locked else unlock_state)
+            except tk.TclError:
+                pass
+
+        # Category checkboxes are created dynamically after the window opens
+        # (the WordPress fetch completes asynchronously), so they're not in
+        # _lockable_widgets.  Walk the frame children instead.
+        # On unlock, skip the permanent "(no translation)" placeholders.
+        for lang in ('he', 'en'):
+            frame = self._cat_frame[lang]
+            if not frame:
+                continue
+            for child in frame.winfo_children():
+                if not isinstance(child, ttk.Checkbutton):
+                    continue
+                try:
+                    if locked:
+                        child.configure(state='disabled')
+                    elif child.cget('text') != '(no translation)':
+                        child.configure(state='normal')
+                except tk.TclError:
+                    pass
+
+        # "Update existing" checkboxes: lock them directly; on unlock let
+        # _refresh_update_existing_state() decide the correct state for each.
+        if locked:
+            for lang in ('he', 'en'):
+                try:
+                    self._update_existing_cb[lang].configure(state='disabled')
+                except tk.TclError:
+                    pass
+        else:
+            for lang in ('he', 'en'):
+                self._refresh_update_existing_state(lang)
+
     def _on_title_edited(self, lang):
         """Called on every keystroke in a title field.  Resets the existence
         cache so the checkbox can't claim 'I match an existing post' until
@@ -502,6 +563,8 @@ class PostEventWindow(tk.Toplevel):
             return
         label = "Hebrew" if lang == 'he' else "English"
         self._pending_checks += 1
+        if self._pending_checks == 1:
+            self._set_ui_locked(True)
         self._status_var.set(f"Checking for existing {label} post…")
         threading.Thread(
             target=self._run_check_title, args=(lang, title), daemon=True,
@@ -526,6 +589,7 @@ class PostEventWindow(tk.Toplevel):
             current = (self._title_he_var if lang == 'he' else self._title_en_var).get().strip()
             if current != checked_title:
                 if self._pending_checks == 0:
+                    self._set_ui_locked(False)
                     self._status_var.set("Ready.")
                 return
             self._existing_post_id[lang] = post_id
@@ -535,11 +599,13 @@ class PostEventWindow(tk.Toplevel):
             if post_id is not None:
                 self._update_existing_var[lang].set(True)
                 self._locked_post_id[lang] = post_id
-            self._refresh_update_existing_state(lang)
             if self._pending_checks == 0:
+                self._set_ui_locked(False)   # also calls _refresh_update_existing_state
                 self._status_var.set(
                     f"Existing post found (#{post_id})." if post_id else "Ready."
                 )
+            else:
+                self._refresh_update_existing_state(lang)
             # Pre-populate image thumbnail and categories from the existing post.
             if post_id is not None:
                 threading.Thread(
