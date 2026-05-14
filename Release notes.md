@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.15 — 2026-05-12
+
+### Changed
+- **All input fields are locked (grayed out) while a title-check is running.** Locks on the first in-flight check, unlocks when the last one completes. Prevents race conditions where the user edits a field mid-search and the result is applied to the wrong title. Affected widgets: title entries, date entries, description and caption text areas, image Browse/Paste buttons, template selector, category checkboxes, Save and Delete buttons. Cancel remains enabled at all times.
+
+---
+
 ## v1.3.14 — 2026-05-12
 
 ### Changed
