@@ -2,6 +2,14 @@
 
 ---
 
+## v1.3.17 — 2026-05-14
+
+### Fixed
+- **Description and Caption fields now visually gray out during title-check**: `tk.Text` widgets on Windows do not change appearance when `state='disabled'` — only input is blocked. Now also changes background colour to `#e8e8e8` when locked and restores it to white on unlock.
+- **Category checkboxes now reliably disable during title-check**: replaced `isinstance(child, ttk.Checkbutton)` guard (which could silently fail) with a plain `try/except` on `child.configure(state=...)`, matching how the rest of the locking code works.
+
+---
+
 ## v1.3.16 — 2026-05-14
 
 ### Changed
