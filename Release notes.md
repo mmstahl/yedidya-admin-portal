@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.16 — 2026-05-14
+
+### Changed
+- Version bump to consolidate all v1.3.x changes into a clean tagged release.
+
+---
+
 ## v1.3.15 — 2026-05-12
 
 ### Changed
