@@ -500,6 +500,11 @@ class PostEventWindow(tk.Toplevel):
     # Title-edited / title-check / update-existing checkbox
     # ==================================================================
 
+    # Background colours used to visually indicate locked state on tk.Text widgets.
+    # ttk widgets grey out via the theme when state='disabled'; tk.Text does not.
+    _TEXT_BG_NORMAL = 'white'
+    _TEXT_BG_LOCKED = '#e8e8e8'
+
     def _set_ui_locked(self, locked: bool):
         """Disable / re-enable all input widgets while a title-check is running.
 
@@ -510,25 +515,37 @@ class PostEventWindow(tk.Toplevel):
         for widget, lock_state, unlock_state in self._lockable_widgets:
             try:
                 widget.configure(state=lock_state if locked else unlock_state)
+                # tk.Text ignores the theme's disabled colour on Windows —
+                # explicitly change the background so it visually appears locked.
+                if isinstance(widget, tk.Text):
+                    widget.configure(
+                        bg=self._TEXT_BG_LOCKED if locked else self._TEXT_BG_NORMAL
+                    )
             except tk.TclError:
                 pass
 
         # Category checkboxes are created dynamically after the window opens
         # (the WordPress fetch completes asynchronously), so they're not in
-        # _lockable_widgets.  Walk the frame children instead.
+        # _lockable_widgets.  Walk the frame children and try to set state on
+        # each; use try/except rather than isinstance so we don't depend on the
+        # exact widget class hierarchy.
         # On unlock, skip the permanent "(no translation)" placeholders.
         for lang in ('he', 'en'):
             frame = self._cat_frame[lang]
             if not frame:
                 continue
             for child in frame.winfo_children():
-                if not isinstance(child, ttk.Checkbutton):
-                    continue
                 try:
                     if locked:
                         child.configure(state='disabled')
-                    elif child.cget('text') != '(no translation)':
-                        child.configure(state='normal')
+                    else:
+                        text = ''
+                        try:
+                            text = child.cget('text')
+                        except tk.TclError:
+                            pass
+                        if text != '(no translation)':
+                            child.configure(state='normal')
                 except tk.TclError:
                     pass
 
