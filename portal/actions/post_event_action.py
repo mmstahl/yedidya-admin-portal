@@ -153,7 +153,8 @@ class PostEventAction(BaseAction):
         return ''.join(c for c in s if unicodedata.category(c) != 'Cf').strip()
 
     def find_post(self, title: str, env: str = 'staging', lang: str = '',
-                  log_cb=None, verbose_cb=None) -> ActionResult:
+                  log_cb=None, verbose_cb=None,
+                  try_fallback: bool = True) -> ActionResult:
         """Return ActionResult with data=post_id (int) if found, data=None if not.
 
         log_cb     : optional callable(str) — always-visible progress lines
@@ -185,7 +186,13 @@ class PostEventAction(BaseAction):
         _vlog(f"title (cleaned)  : {repr(clean)}")
         _vlog(f"lang hint        : {repr(lang)}")
 
-        lang_tries = [lang, ''] if lang else ['']
+        # By default we try with the requested lang, then without (fallback for
+        # posts not in WPML's language table).  UI title-checks pass
+        # try_fallback=False to skip the second pass and avoid double-scanning.
+        if lang:
+            lang_tries = [lang, ''] if try_fallback else [lang]
+        else:
+            lang_tries = ['']
 
         try:
             for lang_try in lang_tries:
@@ -461,7 +468,8 @@ class PostEventAction(BaseAction):
             date: str = '', description: str = '', image_path: str = '',
             caption: str = '', lang: str = '', env: str = 'staging',
             is_new_image: bool = False, progress_cb=None,
-            existing_id: int = None) -> ActionResult:
+            existing_id: int = None,
+            force_create: bool = False) -> ActionResult:
         """Create or update one post in one language. Fully self-contained:
         every call is treated as an independent entity — no cross-language
         state, no shared image uploads, no shared create/update flags.
@@ -563,10 +571,10 @@ class PostEventAction(BaseAction):
                 return ActionResult(False, f"Failed to fetch categories: {e}")
 
         # ── 4. Find existing post (needed before image step) ──────────────
-        # Skip the lookup if the caller already knows the ID (e.g. updating
-        # the WPML-duplicated English post by its known post_id, or the
-        # "Update existing post" checkbox locked in a target).
-        if existing_id is None:
+        # Skip the lookup if:
+        #   - the caller already knows the ID (WPML-dup update, locked checkbox), OR
+        #   - force_create=True (user explicitly said "this is a new post" in the UI).
+        if existing_id is None and not force_create:
             _progress("Checking for existing post…")
             find_result = self.find_post(title, env, lang=lang)
             if not find_result.success:

@@ -71,6 +71,22 @@ class PostEventWindow(tk.Toplevel):
         # can iterate it without needing to know the widget hierarchy.
         self._lockable_widgets = []
 
+        # Per-language title-check intent tracking.
+        # _user_locked[lang]       : True when the user manually checked the
+        #                            "Update existing post" checkbox.  Prevents
+        #                            title keystrokes from auto-unchecking it.
+        # _last_checked_title[lang]: last title the user made an explicit
+        #                            decision about (searched or declared new).
+        #                            Prevents the FocusOut popup from re-firing
+        #                            when the field is merely re-focused.
+        # _force_new[lang]         : True when the user answered "New post" to
+        #                            the popup.  Tells action.run() to skip its
+        #                            own find_post() call so no duplicate check
+        #                            is made at save time.
+        self._user_locked        = {'he': False, 'en': False}
+        self._last_checked_title = {'he': None,  'en': None}
+        self._force_new          = {'he': False, 'en': False}
+
         # Per-language image state
         self._image_path     = {'he': None, 'en': None}
         self._image_temp     = {'he': False, 'en': False}
@@ -561,22 +577,97 @@ class PostEventWindow(tk.Toplevel):
             for lang in ('he', 'en'):
                 self._refresh_update_existing_state(lang)
 
+    def _clear_find_state(self, lang):
+        """Reset all title-check state for one language.
+        Called when the title changes and we haven't committed to a decision."""
+        self._existing_post_id[lang]   = None
+        self._locked_post_id[lang]     = None
+        self._force_new[lang]          = False
+        self._user_locked[lang]        = False
+        self._last_checked_title[lang] = None
+        self._update_existing_var[lang].set(False)
+        self._refresh_update_existing_state(lang)
+
     def _on_title_edited(self, lang):
-        """Called on every keystroke in a title field.  Resets the existence
-        cache so the checkbox can't claim 'I match an existing post' until
-        the next FocusOut-triggered title-check completes."""
-        # Don't disturb a locked checkbox — the user has explicitly committed
-        # to updating that specific post.  But do clear the no-lock state.
-        if not self._update_existing_var[lang].get():
+        """Called on every keystroke in a title field.  Clears the existence
+        cache (and the auto-checked checkbox) so that stale results don't
+        persist after a rename — unless the user manually locked in an update."""
+        if not self._user_locked[lang]:
             self._existing_post_id[lang] = None
+            self._locked_post_id[lang]   = None
+            self._update_existing_var[lang].set(False)
             self._refresh_update_existing_state(lang)
 
+    def _ask_new_or_search(self, lang, title):
+        """Modal dialog: ask whether the changed title is a brand-new post or
+        should be searched on the site.  Returns 'new', 'search', or 'cancel'."""
+        label = "Hebrew" if lang == 'he' else "English"
+        result = tk.StringVar(value='cancel')
+        dlg = tk.Toplevel(self)
+        dlg.title("Title changed")
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        ttk.Label(
+            dlg,
+            text=(
+                f'The {label} title has changed:\n\n'
+                f'  "{title}"\n\n'
+                f'Is this a new post, or should the\n'
+                f'system check if it already exists?'
+            ),
+            justify="left", wraplength=380, padding=(16, 12),
+        ).pack()
+        btn_frame = ttk.Frame(dlg, padding=(12, 0, 12, 12))
+        btn_frame.pack()
+        ttk.Button(
+            btn_frame, text="New post (skip search)",
+            command=lambda: (result.set('new'), dlg.destroy()),
+        ).pack(side="left", padx=4)
+        ttk.Button(
+            btn_frame, text="Search",
+            command=lambda: (result.set('search'), dlg.destroy()),
+        ).pack(side="left", padx=4)
+        ttk.Button(
+            btn_frame, text="Cancel",
+            command=dlg.destroy,
+        ).pack(side="left", padx=4)
+        dlg.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width()  - dlg.winfo_width())  // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+        self.wait_window(dlg)
+        return result.get()
+
     def _check_title_exists(self, lang):
+        """FocusOut handler.  Shows a 'New post or Search?' popup when the
+        title has changed, so the user explicitly decides rather than having
+        the system auto-search on every focus loss."""
         title_var = self._title_he_var if lang == 'he' else self._title_en_var
         title = title_var.get().strip()
         if not title:
-            self._existing_post_id[lang] = None
-            self._refresh_update_existing_state(lang)
+            self._clear_find_state(lang)
+            return
+        # Don't re-prompt if the title hasn't changed since the last decision.
+        if title == self._last_checked_title[lang]:
+            return
+        # User manually committed to updating a specific post — don't interfere.
+        if self._user_locked[lang]:
+            return
+        # Clear any stale result from the previous title first.
+        self._clear_find_state(lang)
+        choice = self._ask_new_or_search(lang, title)
+        if choice == 'new':
+            self._force_new[lang]          = True
+            self._last_checked_title[lang] = title
+        elif choice == 'search':
+            self._start_title_search(lang, title)
+        # 'cancel' — user dismissed; they can re-focus to decide later.
+
+    def _start_title_search(self, lang, title):
+        """Launch a background title-check for lang+title (no popup).
+        Used by _check_title_exists (after 'Search') and _load_defaults
+        (silent auto-check on startup)."""
+        if not title:
             return
         label = "Hebrew" if lang == 'he' else "English"
         self._pending_checks += 1
@@ -595,6 +686,7 @@ class PostEventWindow(tk.Toplevel):
         result = self.action.find_post(
             title=title, env=self.env, lang=lang,
             log_cb=_cb, verbose_cb=(_cb if verbose else None),
+            try_fallback=False,   # UI check: one pass only, no double-scan
         )
         post_id = result.data if (result.success and result.data is not None) else None
         self.after(0, self._apply_title_check_result, lang, title, post_id)
@@ -609,11 +701,16 @@ class PostEventWindow(tk.Toplevel):
                     self._set_ui_locked(False)
                     self._status_var.set("Ready.")
                 return
+            # Record that we've made a decision for this exact title string.
+            self._last_checked_title[lang] = checked_title
             self._existing_post_id[lang] = post_id
             # Auto-check and lock the "Update existing post" checkbox whenever a
             # matching post is found, so the user doesn't have to do it manually.
+            # This is NOT a user-initiated lock (_user_locked stays False), so
+            # subsequent edits to the title will still auto-uncheck the box.
             # The save flow shows a confirmation dialog before proceeding.
             if post_id is not None:
+                self._user_locked[lang] = False          # auto-check, not user intent
                 self._update_existing_var[lang].set(True)
                 self._locked_post_id[lang] = post_id
             if self._pending_checks == 0:
@@ -733,18 +830,21 @@ class PostEventWindow(tk.Toplevel):
             self._locked_id_label_var[lang].set('')
 
     def _on_update_existing_toggled(self, lang):
-        """User clicked the checkbox.  Lock or unlock the target post_id."""
+        """User clicked the checkbox.  Lock or unlock the target post_id and
+        set _user_locked so title edits no longer auto-uncheck the box."""
         if self._update_existing_var[lang].get():
             # Just checked.  Lock in whatever existing post matches now.
             if self._existing_post_id[lang] is None:
-                # Should not be reachable (the checkbox is disabled when
-                # nothing matches) — undo the check defensively.
+                # Should not be reachable (checkbox is disabled when nothing
+                # matches) — undo the check defensively.
                 self._update_existing_var[lang].set(False)
             else:
                 self._locked_post_id[lang] = self._existing_post_id[lang]
+                self._user_locked[lang]    = True
         else:
-            # Just unchecked.
+            # Just unchecked — release the user lock too.
             self._locked_post_id[lang] = None
+            self._user_locked[lang]    = False
         self._refresh_update_existing_state(lang)
 
     # ==================================================================
@@ -786,10 +886,16 @@ class PostEventWindow(tk.Toplevel):
             if saved_cats:
                 self._set_categories(lang, saved_cats.split('|'))
 
-        # Kick off title-checks for any pre-loaded titles so the
+        # Kick off silent title-checks for any pre-loaded titles so the
         # "Update existing post" checkboxes get enabled where applicable.
+        # We call _start_title_search directly (not _check_title_exists) to
+        # skip the "New post or Search?" popup on startup — the user clearly
+        # wants to continue working on whatever was loaded from defaults.
         for lang in ('he', 'en'):
-            self.after(200, self._check_title_exists, lang)
+            title_var = self._title_he_var if lang == 'he' else self._title_en_var
+            t = title_var.get().strip()
+            if t:
+                self.after(200, self._start_title_search, lang, t)
 
     def _save_defaults(self, template, lang_data):
         dm.set_default('post_event', 'template', template)
@@ -948,6 +1054,10 @@ class PostEventWindow(tk.Toplevel):
         # able to disambiguate, and WPML translation linkage would be wrong.
         he_mode, he_target = self._save_mode('he')
         en_mode, en_target = self._save_mode('en')
+
+        # Capture "force new post" intent at save time (main thread).
+        he_force_new = self._force_new['he']
+        en_force_new = self._force_new['en']
         if (he_data['title'] and en_data['title']
                 and he_data['title'] == en_data['title']
                 and (he_mode == 'create' or en_mode == 'create')):
@@ -993,15 +1103,15 @@ class PostEventWindow(tk.Toplevel):
             self._status_var.set("Bilingual create flow…")
             threading.Thread(
                 target=self._run_bilingual_create,
-                args=(template, he_data, en_data),
+                args=(template, he_data, en_data, he_force_new),
                 daemon=True,
             ).start()
         else:
             self._status_var.set("Saving…")
             threading.Thread(
                 target=self._run_independent,
-                args=(template, he_data, he_mode, he_target,
-                      en_data, en_mode, en_target),
+                args=(template, he_data, he_mode, he_target, he_force_new,
+                      en_data, en_mode, en_target, en_force_new),
                 daemon=True,
             ).start()
 
@@ -1009,7 +1119,7 @@ class PostEventWindow(tk.Toplevel):
     # Bilingual create (Hebrew → duplicate → update English)
     # ──────────────────────────────────────────────────────────────────
 
-    def _run_bilingual_create(self, template, he_data, en_data):
+    def _run_bilingual_create(self, template, he_data, en_data, he_force_new=False):
         """Both sides are new.  Three steps:
             1. Create the Hebrew post.
             2. Duplicate it to English (WPML link).
@@ -1033,6 +1143,7 @@ class PostEventWindow(tk.Toplevel):
                 caption=he_data['caption'],
                 lang='he',
                 env=self.env,
+                force_create=he_force_new,
                 progress_cb=lambda m: _set_status(f"Hebrew: {m}"),
             )
             he_result = results['he']
@@ -1102,17 +1213,18 @@ class PostEventWindow(tk.Toplevel):
     # ──────────────────────────────────────────────────────────────────
 
     def _run_independent(self, template,
-                         he_data, he_mode, he_target,
-                         en_data, en_mode, en_target):
+                         he_data, he_mode, he_target, he_force_new,
+                         en_data, en_mode, en_target, en_force_new):
         """Each side is processed independently — used whenever at least one
         side is updating an existing post (no WPML duplication needed)."""
         def _set_status(msg):
             self.after(0, self._status_var.set, msg)
 
-        results  = {'he': None, 'en': None}
-        ids_used = {'he': he_target, 'en': en_target}
-        labels   = {'he': 'Hebrew', 'en': 'English'}
-        plan     = (
+        results     = {'he': None, 'en': None}
+        ids_used    = {'he': he_target, 'en': en_target}
+        labels      = {'he': 'Hebrew', 'en': 'English'}
+        force_new   = {'he': he_force_new, 'en': en_force_new}
+        plan        = (
             ('he', he_data, he_mode, he_target),
             ('en', en_data, en_mode, en_target),
         )
@@ -1134,6 +1246,7 @@ class PostEventWindow(tk.Toplevel):
                     lang=lang,
                     env=self.env,
                     existing_id=target,
+                    force_create=force_new[lang],
                     progress_cb=lambda m, l=lang: _set_status(
                         f"{labels[l]}: {m}"
                     ),

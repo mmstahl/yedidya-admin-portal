@@ -2,6 +2,23 @@
 
 ---
 
+## v1.3.18 — 2026-05-17
+
+### Fixed
+- **Checkbox stays checked after title rename (post not found)**: `_on_title_edited` previously used the checkbox's own value as the guard (`if not _update_existing_var.get()`), so once auto-check set it to True it was never cleared on rename. Now guarded by `_user_locked[lang]` — a new flag that is only True when the *user* manually clicked the checkbox. Auto-checked state (from a successful title-search) never sets this flag, so editing the title still clears the checkbox.
+- **Hebrew posts scanned twice**: `find_post` had a lang-fallback loop (`[lang, '']`) that ran on every UI title-check, doubling the scan. The UI now passes `try_fallback=False` to `find_post`, limiting each UI check to one pass. The fallback is preserved for `action.run()`'s internal check.
+- **English title change triggering Hebrew re-scan**: same root cause — the fallback `lang=''` pass returned the full Hebrew post list, looking like a second Hebrew scan. Eliminated by `try_fallback=False`.
+
+### Changed
+- **"New post or Search?" popup on title change**: instead of auto-launching a background search every time focus leaves a title field, the portal now shows a small dialog asking whether the changed title is a new post or should be searched:
+  - **New post (skip search)** — marks the title as force-create; `action.run()` skips its internal existence check at save time.
+  - **Search** — runs the usual background search with UI lock; auto-checks "Update existing post" if a match is found.
+  - **Cancel** — dismisses without changing state; the user can re-focus to decide later.
+- **Startup auto-check is silent**: when the portal loads saved defaults it calls `_start_title_search` directly (no popup).
+- **`action.run()` gains `force_create` parameter**: when `True` and no `existing_id` is provided, the internal `find_post()` call is skipped and a new post is always created.
+
+---
+
 ## v1.3.17 — 2026-05-14
 
 ### Fixed
