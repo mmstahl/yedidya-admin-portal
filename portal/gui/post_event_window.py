@@ -1498,12 +1498,11 @@ class PostEventWindow(tk.Toplevel):
                 self._log_write(f"[{label}] Error: {post_result.message}\n")
 
         self._status_var.set("Deleted." if overall_ok else "Delete had errors — see log.")
-        # The posts (and possibly the locked IDs) are gone — clear state.
+        # The posts are gone — wipe all title-check state so the next FocusOut
+        # on any title field (including one with the same text) shows the popup
+        # again instead of silently skipping it.
         for lang in ('he', 'en'):
-            self._existing_post_id[lang] = None
-            self._locked_post_id[lang]   = None
-            self._update_existing_var[lang].set(False)
-            self._refresh_update_existing_state(lang)
+            self._clear_find_state(lang)
         self._save_btn.configure(state="normal")
         self._delete_btn.configure(state="normal")
 
