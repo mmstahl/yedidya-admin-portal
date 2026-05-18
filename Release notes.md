@@ -2,6 +2,13 @@
 
 ---
 
+## v1.3.19 — 2026-05-18
+
+### Fixed
+- **"New post or Search?" popup not appearing after delete when the same title is reused**: `_finish_delete` was not clearing `_last_checked_title`, so the FocusOut guard (`title == _last_checked_title`) fired and silently skipped the popup. `_finish_delete` now calls `_clear_find_state()` for both languages, resetting all title-check state — including `_last_checked_title`, `_force_new`, and `_user_locked` — so any title typed or pasted after a delete always prompts the dialog.
+
+---
+
 ## v1.3.18 — 2026-05-17
 
 ### Fixed
