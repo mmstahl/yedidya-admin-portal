@@ -2,6 +2,18 @@
 
 ---
 
+## v1.4.0 — 2026-06-15
+
+### New
+- **Update Product Prices** — new portal action. Reads an Excel file (columns: ID, Regular price, Minimum price) and updates WooCommerce product prices via the WooCommerce REST API.
+  - Validates the entire file before touching WordPress: aborts on both-columns-set, neither-column-set, non-numeric/negative values, product not found, or price-type mismatch (e.g. Excel sets Regular price but product is Name Your Price).
+  - Preview step fetches each product's current name and price and shows a table before any writes are made.
+  - Supports both regular-price products and WooCommerce Name Your Price products (`_min_price` meta key).
+  - Follows the same staging/production environment and credential pattern as other portal actions.
+- Added `openpyxl>=3.0.0` to `requirements.txt`.
+
+---
+
 ## v1.3.19 — 2026-05-18
 
 ### Fixed
