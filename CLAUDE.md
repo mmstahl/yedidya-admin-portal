@@ -71,3 +71,10 @@ resources/                # misc. files
 - `brain/artifacts/specs/auth-system.md` ❌
 
 If you think a new folder is needed, ask the user first.
+
+## Git and Versioning Rules
+
+- **Do not commit** unless explicitly directed to do so — the one exception is when a completely new feature is added, in which case commit and bump the version as part of delivering the feature.
+- **Do not push** to the remote (cloud) unless explicitly directed to do so.
+- **Do not bump the version** unless explicitly directed to do so — the one exception is when a completely new feature is added (see above).
+- Version format: `MAJOR.MINOR.PATCH` in `portal/version.py`. New feature → MINOR bump. Bug fix / tweak → PATCH bump (only when directed).
