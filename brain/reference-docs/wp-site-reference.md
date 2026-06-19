@@ -11,7 +11,7 @@
 
 - **Default:** Hebrew
 - **Secondary:** English (via WPML)
-- Note: the WP REST API returns plugin names and some other fields in Hebrew due to the default locale.
+- Note: the WP REST API returns some plugin names and some other fields in Hebrew due to the default locale.
 
 ## Products
 
