@@ -51,3 +51,16 @@
 - For Hebrew text input in tkinter: `justify='right'` on Entry, `wrap='none'` + scrollbar + `justify='right'` tag on Text. Accept that click-to-cursor in mid-text is a hard tkinter limit (no BiDi engine).
 - Reset session-tracking flags (`_image_user_set`) after each successful save operation.
 - When deleting a WordPress post and its image: fetch media ID from post content *before* deleting the post, then delete media after.
+
+---
+
+## 2026-09-13 — Login error message source + New User Approve denial messaging
+
+**What we found:**
+- The Hebrew login error "האימייל לא מוכר. בדוק שוב או נסה להשתמש בשם משתמש." is **WordPress core's** built-in "Unknown email address" string (from `wp_authenticate_email_password()` in `wp-includes/user.php`), just shown in the site's Hebrew locale. It is not defined anywhere in this repo or in a custom plugin — don't search this codebase for it again.
+- The "New User Approve" plugin (free version) hooks `wp_authenticate_user` and returns distinct, filterable messages for denied/pending users:
+  - Denied → error code `denied_access`, filter `new_user_approve_denied_error`
+  - Pending → error code `pending_approval`, filter `new_user_approve_pending_error`
+  - Both also pass through `new_user_approve_default_authentication_message`
+  - These ARE customizable in the free version via `add_filter()` in `functions.php` or a custom plugin (no premium upgrade needed).
+- Because that hook fires only *after* WP core already finds the user by email, if a denied user is instead seeing the generic "unknown email" message, WP core's email lookup is failing before New User Approve ever runs — i.e. the login attempt likely isn't matching the account's stored email exactly (typo, different address, or username-only lookup). Worth checking the exact email on file for that user before assuming the plugin is misbehaving.
