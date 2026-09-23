@@ -14,11 +14,13 @@ from portal.gui.delete_users_window import DeleteUsersWindow
 from portal.gui.db_extract_window import DbExtractWindow
 from portal.gui.post_event_window import PostEventWindow
 from portal.gui.update_prices_window import UpdatePricesWindow
+from portal.gui.user_status_window import UserStatusWindow
 from portal.actions.members_list_action import MembersListAction
 from portal.actions.delete_users_action import DeleteUsersAction
 from portal.actions.db_extract_action import DbExtractAction
 from portal.actions.post_event_action import PostEventAction
 from portal.actions.update_prices_action import UpdatePricesAction
+from portal.actions.user_status_action import UserStatusAction
 
 
 class MainWindow(tk.Tk):
@@ -39,7 +41,7 @@ class MainWindow(tk.Tk):
         self._verbose_var = tk.BooleanVar(value=(dm.get('portal', 'verbose') == 'true'))
         self._verbose_var.trace_add('write', self._on_verbose_change)
 
-        self._actions = [MembersListAction(), DeleteUsersAction(), DbExtractAction(), PostEventAction(), UpdatePricesAction()]
+        self._actions = [MembersListAction(), DeleteUsersAction(), UserStatusAction(), DbExtractAction(), PostEventAction(), UpdatePricesAction()]
         self._build()
         self._check_credentials()
 
@@ -177,3 +179,5 @@ class MainWindow(tk.Tk):
             PostEventWindow(self, action, env=env, verbose_var=self._verbose_var)
         elif isinstance(action, UpdatePricesAction):
             UpdatePricesWindow(self, action, env=env)
+        elif isinstance(action, UserStatusAction):
+            UserStatusWindow(self, action, env=env)

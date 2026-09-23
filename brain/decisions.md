@@ -111,3 +111,15 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 **Decision:** GDPR erasure is implemented as a standalone plugin (`yedidya-gdpr-erase`) that calls WooCommerce classes. WooCommerce files are never modified.
 
 **Why:** WooCommerce updates would overwrite any changes to core files. A standalone plugin survives updates safely.
+
+---
+
+## 2026-09-23 — Approve/Deny Users: silent status change via custom endpoint
+
+**Decision:** The Approve / Deny Users action sets New User Approve's `pw_user_status` user meta directly through a custom plugin endpoint (`yedidya/v1/user-status`, in `user-status.php`). No emails are sent to users. Administrators can never be denied (enforced server-side).
+
+**Why:** New User Approve's own REST routes (`nua-request/v1/*`) require a browser nonce and reject application-password auth (403 "Invalid nonce"). Silent mode chosen by the user (option A) so a bulk CSV run doesn't email every user.
+
+**Alternatives rejected:** Calling NUA's `update_user_status()` (option B) — triggers approve/deny emails to each user. Using NUA's REST routes — unusable from the portal.
+
+**Open:** A denied user who is already logged in keeps their session until it expires. Destroying sessions on deny was flagged to the user, not implemented.

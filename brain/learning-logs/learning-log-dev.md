@@ -64,3 +64,18 @@
   - Both also pass through `new_user_approve_default_authentication_message`
   - These ARE customizable in the free version via `add_filter()` in `functions.php` or a custom plugin (no premium upgrade needed).
 - Because that hook fires only *after* WP core already finds the user by email, if a denied user is instead seeing the generic "unknown email" message, WP core's email lookup is failing before New User Approve ever runs — i.e. the login attempt likely isn't matching the account's stored email exactly (typo, different address, or username-only lookup). Worth checking the exact email on file for that user before assuming the plugin is misbehaving.
+
+---
+
+## 2026-09-23 — New User Approve status via REST
+
+**What we found:**
+- NUA stores status in user meta `pw_user_status` (`approved` / `denied` / `pending`); empty meta = approved. It is not exposed by `/wp/v2/users` (not registered meta).
+- NUA 3.2.5 registers `nua-request/v1/*` and `nua-zapier/v1/*` routes, but `nua-request` requires a WP nonce (cookie auth) — application passwords get 403 "Invalid nonce". Don't try them again from the portal.
+- After changing status directly, `delete_transient('new_user_approve_user_statuses')` keeps the Users list filter counts fresh.
+
+**Patterns to repeat:**
+- Probe the site's REST index (`GET /wp-json/`) read-only on staging to discover plugin routes before designing an integration.
+- Batch lookups in one custom endpoint call (chunked at 100) instead of one request per user.
+- Return a clear "upload the latest plugin" message when a custom route gives 404 `rest_no_route`.
+- No PHP interpreter on this machine — PHP can't be linted locally; staging is the check.

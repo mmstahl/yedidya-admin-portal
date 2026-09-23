@@ -86,6 +86,37 @@ When the GDPR checkbox is ticked, a confirmation prompt will appear before the p
 
 ---
 
+## Approve / Deny Users
+
+Sets users to **Approved** or **Denied** (the same setting as the Approve/Deny links in the WordPress Users list). Denied users cannot log in.
+
+**How to run:**
+
+1. Prepare a CSV file with a header row and two columns: `email` and `setting`. Setting is `Approve` or `Deny` (not case-sensitive).
+
+   ```
+   email,setting
+   dana@example.com,Deny
+   yossi@example.com,Approve
+   ```
+
+2. Click **Go** next to *Approve / Deny Users*.
+3. Enter the path to your CSV file and click **Preview**.
+4. The portal shows each user's current and new setting:
+   - **Will change** — the setting will be updated
+   - **No change** — the user already has that setting
+   - **Admin — can't deny** — administrators are never denied
+   - **Not found** — no WordPress account with that email
+
+   Rows with a missing email, an unknown setting, or the same email listed twice with different settings are skipped and listed in the log.
+5. Click **Apply Changes** and confirm.
+
+No emails are sent to the users. Nothing changes before you confirm.
+
+> **Requires** the Yedidya Admin Portal plugin with `user-status.php` installed on the site. If it's missing, the portal will tell you to upload it.
+
+---
+
 ## Post/Update Event
 
 Creates a new event post on the website, or updates one that already exists, based on a reusable template.

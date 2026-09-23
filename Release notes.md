@@ -2,6 +2,18 @@
 
 ---
 
+## v1.5.0 — 2026-09-23
+
+### New
+- **Approve / Deny Users** — new portal action. Reads a CSV (columns: `email`, `setting`) and sets each user's New User Approve status to Approved or Denied.
+  - Preview shows each user's current and new status before anything changes. Users already in the requested state are skipped.
+  - Status is changed silently: New User Approve's approve/deny emails are not sent.
+  - Administrators cannot be denied (enforced by the plugin endpoint and shown in the preview).
+  - Invalid CSV rows (bad email, unknown setting, conflicting duplicates) are skipped and listed in the log.
+- **WordPress plugin:** new `user-status.php` in the Yedidya Admin Portal plugin, adding `POST /wp-json/yedidya/v1/user-status/lookup` and `POST /wp-json/yedidya/v1/user-status`. **Upload the updated plugin to each site before using the action.**
+
+---
+
 ## v1.4.0 — 2026-06-15
 
 ### New
