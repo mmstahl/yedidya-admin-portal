@@ -45,13 +45,13 @@ function yedidya_pending_login_message() {
 if ( ! function_exists( 'yedidya_denied_login_message' ) ) {
 function yedidya_denied_login_message() {
     if ( yedidya_login_message_language() === 'en' ) {
-        return '<strong>ERROR</strong>: Your account has been blocked because you have not yet paid your membership dues. '
+        return '<strong>ERROR</strong>Your account has been blocked because you have not yet paid your membership dues. '
             . 'Logging into the website allows downloading details of community members, and due to privacy laws in the '
             . 'State of Israel, we are only permitted to share member details with other members of the community. '
             . 'For further details, please contact Michael Stahl (054-7887488 or michael.m.stahl@gmail.com).';
     }
 
-    return '<strong>שגיאה</strong>: החשבון שלך נחסם כיוון שעדיין לא שילמת את דמי החבר. '
+    return '<strong>שגיאה</strong>החשבון שלך נחסם כיוון שעדיין לא שילמת את דמי החבר. '
         . 'כניסה לאתר מאפשרת הורדה של פרטי החברים בקהילה, ועקב חוקי הפרטיות במדינת ישראל מותר לנו לחלוק את פרטי החברים '
         . 'רק עם חברים אחרים בקהילה. לפרטים נוספים צור קשר עם מיכאל שטאל (054-7887488 או michael.m.stahl@gmail.com).';
 }
