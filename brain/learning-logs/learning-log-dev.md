@@ -78,4 +78,4 @@
 - Probe the site's REST index (`GET /wp-json/`) read-only on staging to discover plugin routes before designing an integration.
 - Batch lookups in one custom endpoint call (chunked at 100) instead of one request per user.
 - Return a clear "upload the latest plugin" message when a custom route gives 404 `rest_no_route`.
-- No PHP interpreter on this machine — PHP can't be linted locally; staging is the check.
+- PHP 8.3.35 CLI installed at `D:\Utils\php` (2026-09-24; site runs 8.3.33). Lint plugin files with `php -l <file>` before upload. winget PHP packages can 404 (stale URLs), so install from the downloads.php.net zip instead.
