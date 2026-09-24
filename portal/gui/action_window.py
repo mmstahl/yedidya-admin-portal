@@ -11,6 +11,8 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+import defaults_manager as dm
+
 
 class MembersListWindow(tk.Toplevel):
     def __init__(self, parent, action, env='staging'):
@@ -60,6 +62,12 @@ class MembersListWindow(tk.Toplevel):
         self._sftp_unlocked = False
         self._sftp_remote.configure(state='readonly')
         self._sftp_remote.bind('<Button-1>', self._on_sftp_click)
+
+        # Approval filter — ticked by default; choice is remembered
+        self._exclude_unapproved_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(fields, text="Leave out non-approved users",
+                        variable=self._exclude_unapproved_var).grid(
+            row=4, column=1, columnspan=2, sticky="w", **pad)
 
         # --- Log area ---
         log_frame = ttk.LabelFrame(self, text="Log", padding=8)
@@ -132,6 +140,7 @@ class MembersListWindow(tk.Toplevel):
         self._sftp_remote.configure(state='normal')
         self._sftp_remote.insert(0,   defaults.get('sftp_remote_path', ''))
         self._sftp_remote.configure(state='readonly')
+        self._exclude_unapproved_var.set(defaults.get('exclude_unapproved') != 'false')
 
     def _browse(self, entry):
         path = filedialog.asksaveasfilename(parent=self)
@@ -153,7 +162,10 @@ class MembersListWindow(tk.Toplevel):
             self._log_write("All path fields are required.\n")
             return
 
+        exclude_unapproved = self._exclude_unapproved_var.get()
         self.action.save_defaults(raw_csv, processed_csv, pdf, sftp_remote, self.env)
+        dm.set_default('members_list', 'exclude_unapproved',
+                       'true' if exclude_unapproved else 'false')
 
         self._run_btn.configure(state="disabled")
         self._log_clear()
@@ -161,11 +173,11 @@ class MembersListWindow(tk.Toplevel):
 
         threading.Thread(
             target=self._generate_worker,
-            args=(raw_csv, processed_csv, pdf, sftp_remote),
+            args=(raw_csv, processed_csv, pdf, sftp_remote, exclude_unapproved),
             daemon=True
         ).start()
 
-    def _generate_worker(self, raw_csv, processed_csv, pdf, sftp_remote):
+    def _generate_worker(self, raw_csv, processed_csv, pdf, sftp_remote, exclude_unapproved):
         def progress(step, total, msg):
             self.after(0, self._log_write, f"[{step}/{total}] {msg}\n")
 
@@ -175,6 +187,7 @@ class MembersListWindow(tk.Toplevel):
             pdf_path=pdf,
             progress_callback=progress,
             env=self.env,
+            exclude_unapproved=exclude_unapproved,
         )
 
         self.after(0, self._on_generate_done, result, pdf, sftp_remote)

@@ -7,6 +7,7 @@ Two-phase API:
   run_upload()   — step 4 (SFTP upload)
   run()          — convenience wrapper: calls both (used for staging + standalone)
 """
+import csv
 import os
 import sys
 import importlib.util
@@ -26,6 +27,13 @@ def _load_generator():
     return mod
 
 
+def _count_unapproved(raw_csv_path):
+    """Number of users in the raw CSV whose user_status is not 'approved'."""
+    with open(raw_csv_path, newline='', encoding='utf-8-sig') as f:
+        return sum(1 for row in csv.DictReader(f)
+                   if (row.get('user_status') or '').strip() != 'approved')
+
+
 def _ensure_importable():
     if SUB_PROJECT_MEMBERS_LIST not in sys.path:
         sys.path.insert(0, SUB_PROJECT_MEMBERS_LIST)
@@ -40,9 +48,12 @@ class MembersListAction(BaseAction):
     # ------------------------------------------------------------------
 
     def run_generate(self, raw_csv_path, processed_csv_path, pdf_path,
-                     progress_callback=None, env='staging') -> ActionResult:
+                     progress_callback=None, env='staging',
+                     exclude_unapproved=True) -> ActionResult:
         """
         Fetch members, pre-process CSV, generate PDF.
+        exclude_unapproved: leave out users who are not Approved
+        (New User Approve status denied or pending).
         Returns ActionResult; on success result.data = pdf_path.
         """
         _ensure_importable()
@@ -72,8 +83,12 @@ class MembersListAction(BaseAction):
         # Step 2 — Pre-process
         _step(2, "Pre-processing CSV...")
         try:
-            count = pre_process(raw_csv_path, processed_csv_path)
+            count = pre_process(raw_csv_path, processed_csv_path,
+                                exclude_unapproved=exclude_unapproved)
             log.append(f"  ✓ Processed {count} entries")
+            if exclude_unapproved:
+                log.append(f"  ✓ Left out {_count_unapproved(raw_csv_path)} "
+                           "non-approved user(s)")
         except Exception as e:
             return ActionResult(False, str(e), log)
 
@@ -123,7 +138,8 @@ class MembersListAction(BaseAction):
     # ------------------------------------------------------------------
 
     def run(self, raw_csv_path, processed_csv_path, pdf_path, sftp_remote_path,
-            progress_callback=None, env='staging') -> ActionResult:
+            progress_callback=None, env='staging',
+            exclude_unapproved=True) -> ActionResult:
         """Run the full pipeline in one call (used for staging and run.py)."""
 
         def _gen_progress(step, total, msg):
@@ -135,7 +151,8 @@ class MembersListAction(BaseAction):
                 progress_callback(4, 4, msg)
 
         result = self.run_generate(raw_csv_path, processed_csv_path, pdf_path,
-                                   progress_callback=_gen_progress, env=env)
+                                   progress_callback=_gen_progress, env=env,
+                                   exclude_unapproved=exclude_unapproved)
         if not result.success:
             return result
 

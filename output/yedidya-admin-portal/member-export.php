@@ -10,6 +10,9 @@
  * ENDPOINT
  *   GET /wp-json/yedidya/v1/members
  *   Auth: WordPress application password with edit_users capability
+ *
+ *   Each member includes `user_status` (New User Approve):
+ *   'approved' / 'denied' / 'pending'.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -78,6 +81,8 @@ function yedidya_get_members( $request ) {
             'partnergender'                 => $meta['partnergender'],
             'contact_list_privacy_setting'  => $meta['contact_list_privacy_setting'],
             'privacy_approval'              => $meta['privacy_approval'],
+            // New User Approve status; empty meta means approved (plugin default)
+            'user_status'                   => get_user_meta( $user->ID, 'pw_user_status', true ) ?: 'approved',
         );
     }
 

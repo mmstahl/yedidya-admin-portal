@@ -2,6 +2,16 @@
 
 ---
 
+## v1.6.0 — 2026-09-24
+
+### New
+- **Members List: "Leave out non-approved users"** — new checkbox (ticked by default, remembered between runs). When ticked, users whose New User Approve status is Denied or Pending are left out of the members list. The log shows how many were left out.
+  - If the website's plugin is out of date (no approval status in the member data), the run stops with a message to upload the latest plugin, instead of producing an empty or unfiltered list.
+- **WordPress plugin:** `member-export.php` now returns `user_status` for each member (`approved` / `denied` / `pending`). **Upload the updated plugin to each site before using the option.**
+- **MemberList-Generator sub-project:** `fetch_members.py` writes the new `user_status` column; `pre_process()` gains an `exclude_unapproved` option (off by default, so standalone `run.py` behaves as before).
+
+---
+
 ## v1.5.0 — 2026-09-23
 
 ### New

@@ -39,14 +39,15 @@ See more details below.
 
 1. Click **Go** next to *Members List*.
 2. Check the file paths — they default to the folder where the portal is installed. You can leave them as-is unless you want the files saved somewhere else. Any change is remembered for next time.
-3. Click **Run**.
+3. Leave **Leave out non-approved users** ticked (the default) to keep denied and pending users out of the list. Your choice is remembered for next time.
+4. Click **Run**.
 
 The portal runs three steps in sequence:
 
 | Step | What happens |
 |------|-------------|
 | Fetch | Downloads the current member list from WordPress into a CSV file |
-| Process | Cleans and sorts the data. Accounts that have the approval to publish in the members list set to "No" are filtered out |
+| Process | Cleans and sorts the data. Accounts that have the approval to publish in the members list set to "No" are filtered out. If *Leave out non-approved users* is ticked, users who are not Approved (denied or pending) are also filtered out |
 | Generate PDF | Produces the formatted members list PDF (In Hebrew; there is no option currently to have it in English)|
 
 In **Staging**, the PDF is uploaded automatically after generation.

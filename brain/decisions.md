@@ -123,3 +123,15 @@ Standing decisions and choices. Updated by the Chief of Staff after noteworthy d
 **Alternatives rejected:** Calling NUA's `update_user_status()` (option B) — triggers approve/deny emails to each user. Using NUA's REST routes — unusable from the portal.
 
 **Open:** A denied user who is already logged in keeps their session until it expires. Destroying sessions on deny was flagged to the user, not implemented.
+
+---
+
+## 2026-09-24 — Members List: leave out non-approved users by default
+
+**Decision:** The Members List has a "Leave out non-approved users" checkbox, ticked by default and remembered. When ticked, only users whose New User Approve status is `approved` are included — denied AND pending users are left out. The `yedidya/v1/members` endpoint returns `user_status` (empty meta → `approved`).
+
+**Why:** Denied users are blocked for unpaid dues; the members list may only be shared with members (privacy law). Pending users aren't confirmed members yet, so they're excluded too (user's call).
+
+**Safety:** If the site's plugin is outdated (`user_status` missing or empty for everyone), pre-processing stops with an "upload the latest plugin" error rather than silently producing an empty or unfiltered list.
+
+**Alternatives rejected:** Filtering only denied users (pending would leak into the list).
